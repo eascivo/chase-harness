@@ -73,6 +73,9 @@ rm /usr/local/bin/chase
 | `CHASE_STALE_LIMIT` | `3` | 连续无进展停止阈值 |
 | `CHASE_APP_URL` | `""` | 应用 URL，用于 Playwright UI 测试 |
 | `CHASE_PLAYWRIGHT` | `""` | 设为 `1` 启用浏览器测试 |
+| `CHASE_GENERATOR_MODEL` | `glm-4.7` | Generator 使用的模型 |
+| `CHASE_EVALUATOR_MODEL` | `glm-4.7` | Evaluator 使用的模型 |
+| `CHASE_PLANNER_MODEL` | `glm-4.7` | Planner 使用的模型 |
 
 ## MISSION.md 格式
 

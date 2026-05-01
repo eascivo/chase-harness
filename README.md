@@ -73,6 +73,9 @@ Environment variables:
 | `CHASE_STALE_LIMIT` | `3` | Consecutive no-progress limit |
 | `CHASE_APP_URL` | `""` | App URL for Playwright UI testing |
 | `CHASE_PLAYWRIGHT` | `""` | Set to `1` to enable browser testing |
+| `CHASE_GENERATOR_MODEL` | `glm-4.7` | Model for Generator agent |
+| `CHASE_EVALUATOR_MODEL` | `glm-4.7` | Model for Evaluator agent |
+| `CHASE_PLANNER_MODEL` | `glm-4.7` | Model for Planner agent |
 
 ## MISSION.md Format
 
