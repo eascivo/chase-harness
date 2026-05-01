@@ -88,10 +88,30 @@ def cmd_init(args) -> int:
     state.init_directories()
     state.init_cost_file()
 
+    # .env example
+    env_file = state.root / ".env"
+    if not env_file.exists():
+        env_file.write_text("""# Chase configuration — edit and uncomment as needed
+
+# LLM provider (uncomment for custom endpoint)
+# CHASE_LLM_API_KEY=your-api-key-here
+# CHASE_LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+# CHASE_MODEL=glm-4-plus
+
+# Budget
+# CHASE_COST_LIMIT=10000.0
+
+# Sprint tuning
+# CHASE_MAX_RETRIES=3
+# CHASE_EVAL_THRESHOLD=0.7
+""")
+        print_green("Created .chase/.env")
+
     print_green("Done! Next steps:")
     print()
     print("  1. Edit MISSION.md with your goal")
-    print("  2. Run: chase run")
+    print("  2. Edit .chase/.env to configure your LLM provider")
+    print("  3. Run: chase run")
     print()
     return 0
 

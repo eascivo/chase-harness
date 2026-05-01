@@ -83,7 +83,8 @@ Strictly evaluate the above sprint. Verify each criterion:
             full_prompt,
             max_turns=15,
             allowed_tools=allowed_tools,
-            model=self.config.evaluator_model,
+            model=self.config.get_model("evaluator"),
+            env=self.config.llm_env,
         )
 
         cost.track(claude_result.cost, str(sprint_id), "evaluator")

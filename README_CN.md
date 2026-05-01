@@ -62,7 +62,20 @@ rm /usr/local/bin/chase
 
 ## 配置
 
-通过环境变量覆盖：
+编辑 `.chase/.env`（`chase init` 自动创建），或设置环境变量：
+
+### LLM 提供商
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `CHASE_MODEL` | `""` | 全局默认模型 |
+| `CHASE_PLANNER_MODEL` | `""` | Planner 模型（覆盖 `CHASE_MODEL`） |
+| `CHASE_GENERATOR_MODEL` | `""` | Generator 模型（覆盖 `CHASE_MODEL`） |
+| `CHASE_EVALUATOR_MODEL` | `""` | Evaluator 模型（覆盖 `CHASE_MODEL`） |
+| `CHASE_LLM_API_KEY` | `""` | API Key |
+| `CHASE_LLM_BASE_URL` | `""` | 自定义 API 地址（如 `https://open.bigmodel.cn/api/paas/v4`） |
+
+### Sprint 与预算
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -71,11 +84,15 @@ rm /usr/local/bin/chase
 | `CHASE_MAX_RETRIES` | `3` | 每 sprint 最大重试次数 |
 | `CHASE_EVAL_THRESHOLD` | `0.7` | 通过分数阈值（0-1） |
 | `CHASE_STALE_LIMIT` | `3` | 连续无进展停止阈值 |
-| `CHASE_APP_URL` | `""` | 应用 URL，用于 Playwright UI 测试 |
+
+### UI 测试
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `CHASE_APP_URL` | `""` | 应用 URL（Playwright） |
 | `CHASE_PLAYWRIGHT` | `""` | 设为 `1` 启用浏览器测试 |
-| `CHASE_GENERATOR_MODEL` | `glm-4.7` | Generator 使用的模型 |
-| `CHASE_EVALUATOR_MODEL` | `glm-4.7` | Evaluator 使用的模型 |
-| `CHASE_PLANNER_MODEL` | `glm-4.7` | Planner 使用的模型 |
+
+优先级：环境变量 > `.chase/.env` > 默认值
 
 ## MISSION.md 格式
 

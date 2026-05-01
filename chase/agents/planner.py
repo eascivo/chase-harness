@@ -44,7 +44,8 @@ Output a JSON array of sprint contracts. Only output JSON, no other text."""
             full_prompt,
             max_turns=10,
             allowed_tools=["Read", "Glob", "Grep"],
-            model=self.config.planner_model,
+            model=self.config.get_model("planner"),
+            env=self.config.llm_env,
         )
 
         cost.track(result.cost, "0", "planner")

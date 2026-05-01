@@ -22,6 +22,7 @@ def run_claude(
     max_turns: int = 10,
     allowed_tools: list[str] | None = None,
     model: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> ClaudeResult:
     """Run claude -p with --output-format json, capture and parse output."""
     cmd = ["claude", "-p", prompt]
@@ -34,7 +35,7 @@ def run_claude(
         cmd.extend(["--model", model])
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
         raw_stdout = proc.stdout
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
         return ClaudeResult(result_text="", cost=0.0, raw_json=None)

@@ -62,7 +62,20 @@ rm /usr/local/bin/chase
 
 ## Configuration
 
-Environment variables:
+Edit `.chase/.env` (created by `chase init`), or set environment variables:
+
+### LLM Provider
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHASE_MODEL` | `""` | Default model for all agents |
+| `CHASE_PLANNER_MODEL` | `""` | Model for Planner (overrides `CHASE_MODEL`) |
+| `CHASE_GENERATOR_MODEL` | `""` | Model for Generator (overrides `CHASE_MODEL`) |
+| `CHASE_EVALUATOR_MODEL` | `""` | Model for Evaluator (overrides `CHASE_MODEL`) |
+| `CHASE_LLM_API_KEY` | `""` | API key for your LLM provider |
+| `CHASE_LLM_BASE_URL` | `""` | Custom API endpoint (e.g. `https://open.bigmodel.cn/api/paas/v4`) |
+
+### Sprint & Budget
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -71,11 +84,15 @@ Environment variables:
 | `CHASE_MAX_RETRIES` | `3` | Max retries per sprint |
 | `CHASE_EVAL_THRESHOLD` | `0.7` | Pass score threshold (0-1) |
 | `CHASE_STALE_LIMIT` | `3` | Consecutive no-progress limit |
+
+### UI Testing
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `CHASE_APP_URL` | `""` | App URL for Playwright UI testing |
 | `CHASE_PLAYWRIGHT` | `""` | Set to `1` to enable browser testing |
-| `CHASE_GENERATOR_MODEL` | `glm-4.7` | Model for Generator agent |
-| `CHASE_EVALUATOR_MODEL` | `glm-4.7` | Model for Evaluator agent |
-| `CHASE_PLANNER_MODEL` | `glm-4.7` | Model for Planner agent |
+
+Priority: environment variables > `.chase/.env` > defaults
 
 ## MISSION.md Format
 
