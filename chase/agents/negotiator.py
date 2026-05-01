@@ -48,7 +48,7 @@ Refine the above sprint contract into a precise, negotiable checklist. Output on
             max_turns=10,
             allowed_tools=["Read", "Glob", "Grep"],
             model=self.config.get_model("planner"),
-            env=self.config.llm_env,
+            env=self.config.get_agent_env("planner"),
         )
 
         cost.track(result.cost, str(sprint_id), "negotiator")

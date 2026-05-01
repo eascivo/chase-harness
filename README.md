@@ -66,14 +66,22 @@ Edit `.chase/.env` (created by `chase init`), or set environment variables:
 
 ### LLM Provider
 
+Each agent can use a different provider — e.g., GPT for planning, Claude for code generation.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CHASE_MODEL` | `""` | Default model for all agents |
-| `CHASE_PLANNER_MODEL` | `""` | Model for Planner (overrides `CHASE_MODEL`) |
-| `CHASE_GENERATOR_MODEL` | `""` | Model for Generator (overrides `CHASE_MODEL`) |
-| `CHASE_EVALUATOR_MODEL` | `""` | Model for Evaluator (overrides `CHASE_MODEL`) |
-| `CHASE_LLM_API_KEY` | `""` | API key for your LLM provider |
-| `CHASE_LLM_BASE_URL` | `""` | Custom API endpoint (e.g. `https://open.bigmodel.cn/api/paas/v4`) |
+| `CHASE_LLM_API_KEY` | `""` | API key (global default) |
+| `CHASE_LLM_BASE_URL` | `""` | API endpoint (global default) |
+| `CHASE_PLANNER_MODEL` | `""` | Planner model (overrides global) |
+| `CHASE_PLANNER_API_KEY` | `""` | Planner API key (overrides global) |
+| `CHASE_PLANNER_BASE_URL` | `""` | Planner endpoint (overrides global) |
+| `CHASE_GENERATOR_MODEL` | `""` | Generator model (overrides global) |
+| `CHASE_GENERATOR_API_KEY` | `""` | Generator API key (overrides global) |
+| `CHASE_GENERATOR_BASE_URL` | `""` | Generator endpoint (overrides global) |
+| `CHASE_EVALUATOR_MODEL` | `""` | Evaluator model (overrides global) |
+| `CHASE_EVALUATOR_API_KEY` | `""` | Evaluator API key (overrides global) |
+| `CHASE_EVALUATOR_BASE_URL` | `""` | Evaluator endpoint (overrides global) |
 
 ### Sprint & Budget
 

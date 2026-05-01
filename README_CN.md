@@ -66,14 +66,22 @@ rm /usr/local/bin/chase
 
 ### LLM 提供商
 
+每个 Agent 可以用不同的提供商——比如 GPT 规划，Claude 执行。
+
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `CHASE_MODEL` | `""` | 全局默认模型 |
-| `CHASE_PLANNER_MODEL` | `""` | Planner 模型（覆盖 `CHASE_MODEL`） |
-| `CHASE_GENERATOR_MODEL` | `""` | Generator 模型（覆盖 `CHASE_MODEL`） |
-| `CHASE_EVALUATOR_MODEL` | `""` | Evaluator 模型（覆盖 `CHASE_MODEL`） |
-| `CHASE_LLM_API_KEY` | `""` | API Key |
-| `CHASE_LLM_BASE_URL` | `""` | 自定义 API 地址（如 `https://open.bigmodel.cn/api/paas/v4`） |
+| `CHASE_LLM_API_KEY` | `""` | API Key（全局默认） |
+| `CHASE_LLM_BASE_URL` | `""` | API 地址（全局默认） |
+| `CHASE_PLANNER_MODEL` | `""` | Planner 模型（覆盖全局） |
+| `CHASE_PLANNER_API_KEY` | `""` | Planner API Key（覆盖全局） |
+| `CHASE_PLANNER_BASE_URL` | `""` | Planner 端点（覆盖全局） |
+| `CHASE_GENERATOR_MODEL` | `""` | Generator 模型（覆盖全局） |
+| `CHASE_GENERATOR_API_KEY` | `""` | Generator API Key（覆盖全局） |
+| `CHASE_GENERATOR_BASE_URL` | `""` | Generator 端点（覆盖全局） |
+| `CHASE_EVALUATOR_MODEL` | `""` | Evaluator 模型（覆盖全局） |
+| `CHASE_EVALUATOR_API_KEY` | `""` | Evaluator API Key（覆盖全局） |
+| `CHASE_EVALUATOR_BASE_URL` | `""` | Evaluator 端点（覆盖全局） |
 
 ### Sprint 与预算
 

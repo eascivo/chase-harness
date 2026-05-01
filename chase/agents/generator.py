@@ -57,7 +57,7 @@ Implement the sprint contract defined above. When done:
             max_turns=30,
             allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
             model=self.config.get_model("generator"),
-            env=self.config.llm_env,
+            env=self.config.get_agent_env("generator"),
         )
 
         cost.track(result.cost, str(sprint_id), "generator")
