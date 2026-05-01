@@ -64,6 +64,14 @@ rm /usr/local/bin/chase
 
 Edit `.chase/.env` (created by `chase init`), or set environment variables:
 
+### CLI Adapter
+
+Choose which AI coding CLI to use. Defaults to `claude` if not set.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHASE_CLI` | `claude` | CLI to use: `claude`, `codex`, or `gemini` |
+
 ### LLM Provider
 
 Each agent can use a different provider — e.g., GPT for planning, Claude for code generation. All fields are optional; if not configured, agents use the Claude Code CLI's default settings (no extra setup needed).
@@ -123,7 +131,7 @@ The more specific and measurable your acceptance criteria, the better the result
 
 ## Architecture
 
-Each agent runs as a fresh `claude -p` session with its own system prompt:
+Each agent runs as a fresh CLI session (`claude -p`, `codex -q`, or `gemini -p` depending on `CHASE_CLI`) with its own system prompt:
 
 - **Planner** — Decomposes MISSION.md into sprint contracts (what to do, not how)
 - **Negotiator** — Refines contracts into precise, measurable criteria before any code is written
@@ -156,6 +164,7 @@ When a sprint involves frontend work, the Evaluator adds a `design_score` (0-1) 
 ## Highlights
 
 - **Pure Python, zero pip dependencies** — only stdlib (dataclass, json, subprocess, argparse)
+- **Multi-CLI support** — works with Claude Code, Codex CLI, and Gemini CLI
 - **Four-agent pattern** — Planner, Negotiator, Generator, Evaluator work independently
 - **Contract negotiation** — criteria refined before coding, not after failing
 - **Cost tracking** — real-time budget monitoring per sprint and total
@@ -165,7 +174,7 @@ When a sprint involves frontend work, the Evaluator adds a `design_score` (0-1) 
 
 ## Requirements
 
-- [Claude Code CLI](https://claude.ai/code)
+- An AI coding CLI: [Claude Code](https://claude.ai/code), [Codex CLI](https://github.com/openai/codex), or [Gemini CLI](https://github.com/google-gemini/gemini-cli)
 - Python 3.9+
 - Git
 

@@ -64,6 +64,14 @@ rm /usr/local/bin/chase
 
 编辑 `.chase/.env`（`chase init` 自动创建），或设置环境变量：
 
+### CLI 适配器
+
+选择使用哪个 AI 编码 CLI，默认 `claude`。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `CHASE_CLI` | `claude` | CLI 选择：`claude`、`codex` 或 `gemini` |
+
 ### LLM 提供商
 
 每个 Agent 可以用不同的提供商——比如 GPT 规划，Claude 执行。所有配置项均可选，不配置则使用 Claude Code CLI 自身默认设置，无需额外操作。
@@ -123,7 +131,7 @@ rm /usr/local/bin/chase
 
 ## 架构
 
-每个 Agent 以独立的 `claude -p` 会话运行，拥有各自的系统提示词：
+每个 Agent 以独立的 CLI 会话运行（`claude -p`、`codex -q` 或 `gemini -p`，取决于 `CHASE_CLI` 设置），拥有各自的系统提示词：
 
 - **Planner** — 将 MISSION.md 拆解为 sprint 合约（只定义"做什么"，不指定"怎么做"）
 - **Negotiator** — 在编码前将合约精炼为具体、可测量的验收清单
@@ -154,6 +162,7 @@ Generator 写代码之前，Negotiator 先把每个 sprint 合约精炼为具体
 ## 核心优势
 
 - **纯 Python，零 pip 依赖** — 仅用 stdlib（dataclass、json、subprocess、argparse）
+- **多 CLI 支持** — 支持 Claude Code、Codex CLI、Gemini CLI
 - **四 Agent 模式** — Planner、Negotiator、Generator、Evaluator 独立工作
 - **合约协商** — 编码前精炼验收标准，不是失败后才补
 - **成本追踪** — 实时监控每个 sprint 和总预算消耗
@@ -163,7 +172,7 @@ Generator 写代码之前，Negotiator 先把每个 sprint 合约精炼为具体
 
 ## 依赖
 
-- [Claude Code CLI](https://claude.ai/code)
+- AI 编码 CLI：[Claude Code](https://claude.ai/code)、[Codex CLI](https://github.com/openai/codex) 或 [Gemini CLI](https://github.com/google-gemini/gemini-cli)
 - Python 3.9+
 - Git
 

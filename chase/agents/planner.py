@@ -42,6 +42,7 @@ Output a JSON array of sprint contracts. Only output JSON, no other text."""
 
         result = run_claude(
             full_prompt,
+            cli=self.config.cli,
             max_turns=10,
             allowed_tools=["Read", "Glob", "Grep"],
             model=self.config.get_model("planner"),

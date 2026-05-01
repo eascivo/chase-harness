@@ -1,53 +1,46 @@
-"""Subprocess management for claude CLI invocations."""
+"""Subprocess management for AI CLI invocations."""
 
 from __future__ import annotations
 
 import json
 import re
 import subprocess
-from dataclasses import dataclass
+
+from chase.adapters import get_adapter, CLIResult
 
 
-@dataclass
-class ClaudeResult:
-    """Parsed output from a claude -p invocation."""
-    result_text: str
-    cost: float
-    raw_json: dict | None
-
-
-def run_claude(
+def run_cli(
     prompt: str,
     *,
+    cli: str = "claude",
     max_turns: int = 10,
     allowed_tools: list[str] | None = None,
     model: str | None = None,
     env: dict[str, str] | None = None,
-) -> ClaudeResult:
-    """Run claude -p with --output-format json, capture and parse output."""
-    cmd = ["claude", "-p", prompt]
-    cmd.extend(["--max-turns", str(max_turns)])
-    if allowed_tools:
-        cmd.extend(["--allowed-tools", ",".join(allowed_tools)])
-    cmd.append("--dangerously-skip-permissions")
-    cmd.extend(["--output-format", "json"])
-    if model:
-        cmd.extend(["--model", model])
+) -> CLIResult:
+    """Run an AI coding CLI and return parsed result.
+
+    Dispatches to the appropriate adapter based on `cli` name.
+    """
+    adapter = get_adapter(cli)
+    cmd = adapter.build_command(
+        prompt,
+        model=model,
+        max_turns=max_turns,
+        allowed_tools=allowed_tools,
+    )
 
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
         raw_stdout = proc.stdout
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-        return ClaudeResult(result_text="", cost=0.0, raw_json=None)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        return CLIResult(result_text="", cost=0.0, raw_output="")
 
-    # Parse claude's JSON output
-    try:
-        data = json.loads(raw_stdout)
-        result_text = data.get("result", "")
-        cost = data.get("total_cost_usd", data.get("cost_usd", 0)) or 0
-        return ClaudeResult(result_text=str(result_text), cost=float(cost), raw_json=data)
-    except (json.JSONDecodeError, ValueError):
-        return ClaudeResult(result_text=raw_stdout, cost=0.0, raw_json=None)
+    return adapter.parse_output(raw_stdout)
+
+
+# Backward-compatible alias
+run_claude = run_cli
 
 
 def extract_json_from_text(text: str) -> dict | list | None:

@@ -93,6 +93,9 @@ def cmd_init(args) -> int:
     if not env_file.exists():
         env_file.write_text("""# Chase configuration — edit and uncomment as needed
 
+# CLI adapter (claude / codex / gemini)
+# CHASE_CLI=claude
+
 # LLM provider (uncomment for custom endpoint)
 # CHASE_LLM_API_KEY=your-api-key-here
 # CHASE_LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4

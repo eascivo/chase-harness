@@ -54,6 +54,7 @@ Implement the sprint contract defined above. When done:
 
         result = run_claude(
             full_prompt,
+            cli=self.config.cli,
             max_turns=30,
             allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
             model=self.config.get_model("generator"),

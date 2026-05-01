@@ -45,6 +45,7 @@ Refine the above sprint contract into a precise, negotiable checklist. Output on
 
         result = run_claude(
             full_prompt,
+            cli=self.config.cli,
             max_turns=10,
             allowed_tools=["Read", "Glob", "Grep"],
             model=self.config.get_model("planner"),

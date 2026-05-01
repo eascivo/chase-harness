@@ -25,6 +25,9 @@ class ChaseConfig:
     app_url: str = ""
     playwright_enabled: bool = False
 
+    # CLI adapter
+    cli: str = "claude"
+
     # Global LLM defaults
     llm_api_key: str = ""
     llm_base_url: str = ""
@@ -65,6 +68,8 @@ class ChaseConfig:
             # Playwright
             app_url=os.environ.get("CHASE_APP_URL", ""),
             playwright_enabled=os.environ.get("CHASE_PLAYWRIGHT", "") == "1",
+            # CLI adapter
+            cli=os.environ.get("CHASE_CLI", "claude"),
             # Global LLM
             llm_api_key=os.environ.get("CHASE_LLM_API_KEY", ""),
             llm_base_url=os.environ.get("CHASE_LLM_BASE_URL", ""),
@@ -96,16 +101,23 @@ class ChaseConfig:
         """Build env dict for an agent's subprocess call.
 
         Per-agent api_key/base_url override global ones.
-        Maps to ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL that claude CLI reads.
+        Maps to provider-specific env vars based on active CLI adapter.
         """
         env = os.environ.copy()
 
         api_key = getattr(self, f"{agent}_api_key", "") or self.llm_api_key
         base_url = getattr(self, f"{agent}_base_url", "") or self.llm_base_url
 
-        if api_key:
-            env["ANTHROPIC_API_KEY"] = api_key
-        if base_url:
-            env["ANTHROPIC_BASE_URL"] = base_url
+        if api_key or base_url:
+            # Claude CLI reads ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL
+            if api_key:
+                env["ANTHROPIC_API_KEY"] = api_key
+            if base_url:
+                env["ANTHROPIC_BASE_URL"] = base_url
+            # Other CLIs may use OPENAI_API_KEY or similar
+            if api_key:
+                env["OPENAI_API_KEY"] = api_key
+            if base_url:
+                env["OPENAI_BASE_URL"] = base_url
 
         return env

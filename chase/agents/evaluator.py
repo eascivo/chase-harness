@@ -81,6 +81,7 @@ Strictly evaluate the above sprint. Verify each criterion:
 
         claude_result = run_claude(
             full_prompt,
+            cli=self.config.cli,
             max_turns=15,
             allowed_tools=allowed_tools,
             model=self.config.get_model("evaluator"),

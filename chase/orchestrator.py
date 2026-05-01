@@ -33,15 +33,17 @@ class Orchestrator:
         self.logger.info("=" * 40)
         self.logger.info("Chase starting")
         self.logger.info(f"Workspace: {self.config.workspace}")
+        self.logger.info(f"CLI adapter: {self.config.cli}")
         self.logger.info(f"Budget: ${self.config.cost_limit}")
         self._log_model_config()
         self.logger.info("=" * 40)
 
-        # Check claude CLI
+        # Check CLI is installed
+        cli_cmd = self.config.cli
         try:
-            subprocess.run(["claude", "--version"], capture_output=True, timeout=5)
+            subprocess.run([cli_cmd, "--version"], capture_output=True, timeout=5)
         except (FileNotFoundError, subprocess.TimeoutExpired):
-            self.logger.error("claude CLI not installed")
+            self.logger.error(f"{cli_cmd} CLI not installed")
             raise SystemExit(1)
 
         # Check MISSION.md
