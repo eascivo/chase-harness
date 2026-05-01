@@ -48,33 +48,47 @@ def extract_json_from_text(text: str) -> dict | list | None:
     """Extract JSON from LLM output text using regex fallback.
 
     Strategy:
-    1. Try json.loads on the full text
-    2. Search for JSON array: [.*]
-    3. Search for JSON object: {.*}
+    1. Strip markdown code blocks and try direct parse
+    2. Search for JSON object: {.*} (priority — evaluator output is usually a dict)
+    3. Search for JSON array: [.*] (only if non-empty)
     """
     if not text or not text.strip():
         return None
 
-    # Try direct parse
+    # Strip markdown code blocks: ```json ... ``` or ``` ... ```
+    stripped = re.sub(r"```(?:json)?\s*\n?", "", text)
+    stripped = re.sub(r"```\s*", "", stripped)
+
+    # Try direct parse on cleaned text
+    try:
+        return json.loads(stripped.strip())
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Also try original text (in case stripping broke something)
     try:
         return json.loads(text.strip())
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # Try extracting JSON array
-    match = re.search(r"\[.*\]", text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
-            pass
+    # Try extracting JSON object first (priority for evaluator output)
+    for source in (stripped, text):
+        match = re.search(r"\{.*\}", source, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
 
-    # Try extracting JSON object
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
-            pass
+    # Try extracting JSON array (skip empty arrays — likely a false match)
+    for source in (stripped, text):
+        match = re.search(r"\[.*\]", source, re.DOTALL)
+        if match:
+            candidate = match.group()
+            if candidate.strip() != "[]":
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    pass
 
     return None
