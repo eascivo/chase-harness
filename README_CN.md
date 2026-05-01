@@ -28,8 +28,8 @@ MISSION.md（你的目标）
 
 ```bash
 # 安装
-git clone https://github.com/eascivo/claude-harness.git ~/.claude-harness
-ln -sf ~/.claude-harness/bin/chase /usr/local/bin/chase
+git clone https://github.com/eascivo/chase-harness.git ~/.chase-harness
+ln -sf ~/.chase-harness/bin/chase /usr/local/bin/chase
 
 # 在任意项目中使用
 cd your-project
@@ -140,4 +140,4 @@ MIT
 
 ---
 
-[English](README.md)
+[English](README.md) | **[中文文档](README_CN.md)**
