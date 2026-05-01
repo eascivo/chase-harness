@@ -19,12 +19,12 @@ class CodexAdapter(BaseAdapter):
         max_turns: int | None = None,
         allowed_tools: list[str] | None = None,
     ) -> list[str]:
-        cmd = ["codex", "-q", prompt]
-        cmd.extend(["--format", "json"])
+        cmd = ["codex", "exec", prompt]
+        cmd.append("--json")
         cmd.append("--full-auto")
         if model:
-            cmd.extend(["--model", model])
-        # Note: codex has no --max-turns or --allowed-tools flags
+            cmd.extend(["-m", model])
+        # Note: codex exec has no --max-turns or --allowed-tools flags
         return cmd
 
     def parse_output(self, raw_stdout: str) -> CLIResult:

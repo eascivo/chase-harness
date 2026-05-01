@@ -50,6 +50,7 @@ Refine the above sprint contract into a precise, negotiable checklist. Output on
             allowed_tools=["Read", "Glob", "Grep"],
             model=self.config.get_model("planner"),
             env=self.config.get_agent_env("planner"),
+            cwd=str(self.config.workspace),
         )
 
         cost.track(result.cost, str(sprint_id), "negotiator")

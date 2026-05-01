@@ -86,6 +86,7 @@ Strictly evaluate the above sprint. Verify each criterion:
             allowed_tools=allowed_tools,
             model=self.config.get_model("evaluator"),
             env=self.config.get_agent_env("evaluator"),
+            cwd=str(self.config.workspace),
         )
 
         cost.track(claude_result.cost, str(sprint_id), "evaluator")
@@ -98,6 +99,22 @@ Strictly evaluate the above sprint. Verify each criterion:
                 "verdict": "ERROR",
                 "feedback": "No JSON in evaluator output",
                 "criteria": [],
+            }
+        elif isinstance(eval_json, list):
+            # Convert criteria list to structured result
+            criteria = eval_json
+            passed = sum(1 for c in criteria if isinstance(c, dict) and c.get("passes"))
+            total = len(criteria)
+            score = round(passed / total, 2) if total > 0 else 0.0
+            verdict = "PASS" if score >= 0.7 else "FAIL"
+            eval_json = {
+                "score": score,
+                "verdict": verdict,
+                "criteria": criteria,
+                "feedback": "; ".join(
+                    c.get("evidence", c.get("name", "")) for c in criteria
+                    if isinstance(c, dict) and not c.get("passes")
+                ),
             }
 
         # Write eval file

@@ -157,9 +157,10 @@ class Orchestrator:
                         f"Not passed (score={final_score} < threshold={self.config.eval_threshold}), "
                         f"retry {retry_count}/{self.config.max_retries}")
 
-            # Stale detection
+            # Stale detection: check git HEAD or uncommitted changes
             current_head = self._git_head()
-            if current_head == prev_head:
+            has_changes = self._git_has_changes()
+            if current_head == prev_head and not has_changes:
                 stale_count += 1
                 self.logger.info(f"Stale count: {stale_count}/{self.config.stale_limit}")
                 if stale_count >= self.config.stale_limit:
@@ -197,6 +198,19 @@ class Orchestrator:
             return proc.stdout.strip()
         except Exception:
             return "none"
+
+    def _git_has_changes(self) -> bool:
+        """Check if there are any staged, unstaged, or untracked changes."""
+        try:
+            proc = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True, text=True, timeout=5,
+            )
+            # Filter out .chase/ files (those are chase internal state)
+            lines = [l for l in proc.stdout.strip().splitlines() if ".chase/" not in l]
+            return len(lines) > 0
+        except Exception:
+            return False
 
     def _extract_sprint_id(self, contract_path) -> int:
         name = contract_path.stem  # e.g. "01-contract"

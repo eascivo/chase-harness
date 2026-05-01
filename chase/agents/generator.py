@@ -59,6 +59,7 @@ Implement the sprint contract defined above. When done:
             allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
             model=self.config.get_model("generator"),
             env=self.config.get_agent_env("generator"),
+            cwd=str(self.config.workspace),
         )
 
         cost.track(result.cost, str(sprint_id), "generator")

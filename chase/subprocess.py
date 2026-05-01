@@ -17,6 +17,7 @@ def run_cli(
     allowed_tools: list[str] | None = None,
     model: str | None = None,
     env: dict[str, str] | None = None,
+    cwd: str | None = None,
 ) -> CLIResult:
     """Run an AI coding CLI and return parsed result.
 
@@ -31,7 +32,7 @@ def run_cli(
     )
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env, cwd=cwd)
         raw_stdout = proc.stdout
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
         return CLIResult(result_text="", cost=0.0, raw_output="")
