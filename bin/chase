@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Chase — thin wrapper that resolves location and delegates to Python
+set -euo pipefail
+
+_resolve_self() {
+  local src="$1"
+  while [ -L "$src" ]; do
+    local dir; dir="$(cd "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    [[ "$src" != /* ]] && src="$dir/$src"
+  done
+  cd "$(dirname "$src")" && pwd
+}
+
+export CHASE_HOME="$(_resolve_self "$0" | xargs dirname)"
+exec python3 -m chase "$@"

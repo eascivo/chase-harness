@@ -1,0 +1,7 @@
+# Runtime state (per-project, not for the repo)
+sprints/
+handoffs/
+logs/
+
+# OS
+.DS_Store
