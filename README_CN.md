@@ -66,7 +66,7 @@ rm /usr/local/bin/chase
 
 ### LLM 提供商
 
-每个 Agent 可以用不同的提供商——比如 GPT 规划，Claude 执行。
+每个 Agent 可以用不同的提供商——比如 GPT 规划，Claude 执行。所有配置项均可选，不配置则使用 Claude Code CLI 自身默认设置，无需额外操作。
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|

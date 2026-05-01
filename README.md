@@ -66,7 +66,7 @@ Edit `.chase/.env` (created by `chase init`), or set environment variables:
 
 ### LLM Provider
 
-Each agent can use a different provider — e.g., GPT for planning, Claude for code generation.
+Each agent can use a different provider — e.g., GPT for planning, Claude for code generation. All fields are optional; if not configured, agents use the Claude Code CLI's default settings (no extra setup needed).
 
 | Variable | Default | Description |
 |----------|---------|-------------|

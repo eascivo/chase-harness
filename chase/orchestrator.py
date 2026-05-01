@@ -34,6 +34,7 @@ class Orchestrator:
         self.logger.info("Chase starting")
         self.logger.info(f"Workspace: {self.config.workspace}")
         self.logger.info(f"Budget: ${self.config.cost_limit}")
+        self._log_model_config()
         self.logger.info("=" * 40)
 
         # Check claude CLI
@@ -198,6 +199,20 @@ class Orchestrator:
     def _extract_sprint_id(self, contract_path) -> int:
         name = contract_path.stem  # e.g. "01-contract"
         return int(name.split("-")[0])
+
+    def _log_model_config(self) -> None:
+        """Log LLM configuration for each agent."""
+        for agent in ("planner", "generator", "evaluator"):
+            model = self.config.get_model(agent)
+            api_key = getattr(self.config, f"{agent}_api_key", "") or self.config.llm_api_key
+            base_url = getattr(self.config, f"{agent}_base_url", "") or self.config.llm_base_url
+            parts = [f"{agent}: model="]
+            parts.append(model or "(Claude default)")
+            if base_url:
+                parts.append(f", endpoint={base_url}")
+            if api_key:
+                parts.append(f", key={api_key[:8]}...")
+            self.logger.info("".join(parts))
 
     def _read_eval(self, path) -> dict | None:
         try:
