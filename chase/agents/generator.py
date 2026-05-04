@@ -1,6 +1,9 @@
 """Generator Agent — implement a sprint contract."""
 
+import json
+
 from chase.agents.base import AgentBase, AgentResult
+from chase.computer_use import is_web_sprint, run_browser_verification
 from chase.cost import CostTracker
 from chase.logging import ChaseLogger
 from chase.subprocess import run_claude
@@ -24,6 +27,22 @@ class GeneratorAgent(AgentBase):
         handoff = self.read_latest_handoff()
         notes = self.read_notes()
 
+        # Build computer use section if applicable
+        computer_use_section = ""
+        if self.config.computer_use_enabled and self.config.app_url and is_web_sprint(contract):
+            computer_use_section = f"""
+## Computer Use (Browser Verification)
+
+This is a web/UI-related sprint. After implementing, use browser automation to verify:
+1. The app is running at: {self.config.app_url}
+2. Navigate to the relevant page
+3. Take screenshots to verify visual output
+4. Check that interactive elements work correctly
+
+Browser verification will run automatically after you complete the implementation.
+"""
+            logger.sprint(sprint_id, "generator", "Computer Use enabled for web sprint")
+
         # Build feedback section if retry
         feedback_section = ""
         if feedback:
@@ -45,7 +64,7 @@ Fix the issues above and re-submit.
 
 ## NOTES
 {notes}
-{feedback_section}
+{computer_use_section}{feedback_section}
 ## Instructions
 
 Implement the sprint contract defined above. When done:
@@ -69,4 +88,29 @@ Implement the sprint contract defined above. When done:
         result_path.write_text(result.result_text)
 
         logger.sprint(sprint_id, "generator", f"Done, cost ${result.cost:.4f}")
+
+        # Run browser verification for web sprints
+        if self.config.computer_use_enabled and self.config.app_url and is_web_sprint(contract):
+            self._run_browser_verification(sprint_id, logger)
+
         return AgentResult(success=True, cost=result.cost, raw_text=result.result_text, parsed_data=None)
+
+    def _run_browser_verification(self, sprint_id: int, logger: ChaseLogger) -> None:
+        """Run browser automation and save evidence for the evaluator."""
+        logger.sprint(sprint_id, "generator", "Running browser verification...")
+
+        screenshot_path = self.state.sprint_screenshot(sprint_id)
+        evidence = run_browser_verification(
+            app_url=self.config.app_url,
+            screenshot_path=screenshot_path,
+            port=self.config.cdp_port,
+        )
+
+        # Save evidence JSON
+        evidence_path = self.state.sprint_browser_evidence(sprint_id)
+        evidence_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n")
+
+        if evidence.get("error"):
+            logger.sprint(sprint_id, "generator", f"Browser verification error: {evidence['error']}")
+        else:
+            logger.sprint(sprint_id, "generator", f"Browser evidence saved: {evidence_path}")

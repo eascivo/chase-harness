@@ -7,6 +7,7 @@ from chase.agents.base import AgentBase, AgentResult
 from chase.cost import CostTracker
 from chase.logging import ChaseLogger
 from chase.subprocess import run_claude, extract_json_from_text
+from chase.computer_use import is_web_sprint
 
 
 class EvaluatorAgent(AgentBase):
@@ -35,9 +36,33 @@ class EvaluatorAgent(AgentBase):
         # Get latest git diff
         git_diff = self._get_git_diff()
 
-        # Build Playwright section if enabled
-        playwright_section = ""
+        # Build browser evidence section
+        browser_section = ""
         allowed_tools = ["Read", "Bash", "Glob", "Grep"]
+
+        # Check for Computer Use browser evidence
+        evidence_path = self.state.sprint_browser_evidence(sprint_id)
+        if evidence_path.exists():
+            try:
+                evidence = json.loads(evidence_path.read_text())
+                page_content = evidence.get("page_content", "")
+                screenshot_file = evidence.get("screenshot_path", "")
+                error = evidence.get("error")
+                if error:
+                    browser_section += f"\n## Browser Verification (Error)\n\nError: {error}\n"
+                elif page_content or screenshot_file:
+                    browser_section += "\n## Browser Verification Evidence\n"
+                    if screenshot_file:
+                        browser_section += f"\nScreenshot saved: {screenshot_file}\n"
+                    if page_content:
+                        # Truncate very long page content
+                        content_preview = page_content[:3000] + ("..." if len(page_content) > 3000 else "")
+                        browser_section += f"\n### Page Content\n```\n{content_preview}\n```\n"
+                logger.sprint(sprint_id, "evaluator", "Browser evidence included in evaluation")
+            except Exception as exc:
+                logger.sprint(sprint_id, "evaluator", f"Failed to read browser evidence: {exc}")
+
+        # Build Playwright section if enabled (legacy path)
         if self.config.playwright_enabled and self.config.app_url:
             allowed_tools.extend([
                 "mcp__playwright__browser_navigate",
@@ -58,6 +83,8 @@ You have browser automation tools. For UI-related criteria:
 4. Verify page content, element visibility, and behavior
 """
             logger.sprint(sprint_id, "evaluator", f"Playwright enabled, app at {self.config.app_url}")
+        else:
+            playwright_section = ""
 
         full_prompt = f"""{eval_prompt}
 
@@ -69,15 +96,16 @@ You have browser automation tools. For UI-related criteria:
 
 ## Code Changes
 {git_diff}
-{playwright_section}
+{browser_section}{playwright_section}
 ## Instructions
 
 Strictly evaluate the above sprint. Verify each criterion:
 1. Run test_command (if specified)
 2. Read relevant code to confirm implementation
 3. Check edge cases and error handling
-4. If Playwright is available and criteria involve UI, test in browser
-5. Output JSON evaluation result (only JSON, no other text)"""
+4. If browser evidence is provided, use it to verify UI/web functionality
+5. If Playwright is available and criteria involve UI, test in browser
+6. Output JSON evaluation result (only JSON, no other text)"""
 
         claude_result = run_claude(
             full_prompt,

@@ -47,6 +47,12 @@ class StateDir:
     def sprint_eval(self, sprint_id: int) -> Path:
         return self.sprints / f"{sprint_id:02d}-eval.json"
 
+    def sprint_screenshot(self, sprint_id: int) -> Path:
+        return self.sprints / f"{sprint_id:02d}-screenshot.png"
+
+    def sprint_browser_evidence(self, sprint_id: int) -> Path:
+        return self.sprints / f"{sprint_id:02d}-browser-evidence.json"
+
     def existing_contracts(self) -> list[Path]:
         return sorted(self.sprints.glob("??-contract.md"))
 

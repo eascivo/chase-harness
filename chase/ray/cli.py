@@ -77,7 +77,19 @@ def cmd_start(args) -> int:
             return 1
         daemonize(state, logger)
 
-    run_loop(state, logger)
+    # Dashboard（daemonize 之后启动，确保在正确进程中）
+    dashboard_server = None
+    if getattr(args, "dashboard", False):
+        from chase.ray.dashboard import start_dashboard
+        port = getattr(args, "dashboard_port", 8765)
+        dashboard_server = start_dashboard(state, port, background=True)
+        logger.info(f"Dashboard 启动在 http://localhost:{port}")
+
+    try:
+        run_loop(state, logger)
+    finally:
+        if dashboard_server:
+            dashboard_server.stop()
     return 0
 
 
@@ -261,6 +273,21 @@ def cmd_remove(args) -> int:
     return 0
 
 
+def cmd_dashboard(args) -> int:
+    """启动 Web Dashboard（前台模式）。"""
+    state = _state(args)
+    port = getattr(args, "port", 8765)
+    from chase.ray.dashboard import start_dashboard
+
+    print_green(f"Chase Ray Dashboard: http://localhost:{port}")
+    print("按 Ctrl+C 停止")
+    try:
+        start_dashboard(state, port, background=False)
+    except KeyboardInterrupt:
+        print("\n已停止")
+    return 0
+
+
 def cmd_launchd(args) -> int:
     """生成 launchd plist 模板。"""
     state = _state(args)
@@ -309,6 +336,9 @@ def register_parser(sub) -> None:
     # start
     p = ray_sub.add_parser("start", help="启动编排循环")
     p.add_argument("--daemon", action="store_true", help="守护进程模式")
+    p.add_argument("--dashboard", action="store_true", help="同时启动 Web Dashboard")
+    p.add_argument("--dashboard-port", type=int, default=8765, dest="dashboard_port",
+                    help="Dashboard 端口（默认 8765）")
 
     # dispatch
     p = ray_sub.add_parser("dispatch", help="动态派发新项目")
@@ -343,6 +373,10 @@ def register_parser(sub) -> None:
     # launchd
     ray_sub.add_parser("launchd", help="生成 macOS launchd plist 模板")
 
+    # dashboard
+    p = ray_sub.add_parser("dashboard", help="启动 Web Dashboard（前台）")
+    p.add_argument("--port", type=int, default=8765, help="端口（默认 8765）")
+
 
 # 命令分发表
 _DISPATCH = {
@@ -356,6 +390,7 @@ _DISPATCH = {
     "stop": cmd_stop,
     "remove": cmd_remove,
     "launchd": cmd_launchd,
+    "dashboard": cmd_dashboard,
 }
 
 
@@ -379,6 +414,7 @@ def handle_ray(args) -> int:
         print("  stop              优雅停机")
         print("  remove <name>     移除项目")
         print("  launchd           生成 launchd plist")
+        print("  dashboard [--port N]  启动 Web Dashboard")
         return 1
 
     handler = _DISPATCH.get(ray_cmd)

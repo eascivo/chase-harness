@@ -25,6 +25,10 @@ class ChaseConfig:
     app_url: str = ""
     playwright_enabled: bool = False
 
+    # Computer Use (CDP)
+    cdp_port: int = 9222
+    computer_use_enabled: bool = False
+
     # CLI adapter
     cli: str = "claude"
 
@@ -68,6 +72,9 @@ class ChaseConfig:
             # Playwright
             app_url=os.environ.get("CHASE_APP_URL", ""),
             playwright_enabled=os.environ.get("CHASE_PLAYWRIGHT", "") == "1",
+            # Computer Use
+            cdp_port=int(os.environ.get("CHASE_CDP_PORT", "9222")),
+            computer_use_enabled=os.environ.get("CHASE_COMPUTER_USE", "") == "1",
             # CLI adapter
             cli=os.environ.get("CHASE_CLI", "claude"),
             # Global LLM
