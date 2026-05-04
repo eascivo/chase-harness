@@ -648,7 +648,7 @@ function showOverview(){
 
 function renderOverview(data){
   _overviewData=data;
-  if(document.getElementById('detailView').style.display!=='none')return;
+  if(document.getElementById('detailView').style.display!==''){return;};
   var dot=document.getElementById('runDot');
   dot.className='status-dot '+(data.running?'dot-running':'dot-stopped');
   document.getElementById('runStatus').textContent=data.running?'Running':'Stopped';
