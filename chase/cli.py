@@ -13,6 +13,7 @@ from chase.cost import CostTracker
 from chase.fmt import print_bold, print_green, print_red, print_yellow
 from chase.logging import ChaseLogger
 from chase.orchestrator import Orchestrator
+from chase.ray.cli import handle_ray, register_parser as register_ray
 from chase.state import StateDir
 
 
@@ -250,6 +251,9 @@ def main() -> int:
         p = sub.add_parser(name)
         p.add_argument("--workspace", default=None)
 
+    # 注册 ray 子命令
+    register_ray(sub)
+
     args = parser.parse_args()
 
     dispatch = {
@@ -258,6 +262,7 @@ def main() -> int:
         "resume": cmd_run,
         "status": cmd_status,
         "reset": cmd_reset,
+        "ray": handle_ray,
     }
 
     handler = dispatch.get(args.command)
