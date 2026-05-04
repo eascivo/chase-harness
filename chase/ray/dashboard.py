@@ -640,7 +640,7 @@ window.addEventListener('popstate',function(){
 
 /* ---- Overview ---- */
 function showOverview(){
-  document.getElementById('overviewView').style.display='';
+  document.getElementById('overviewView').style.display='block';
   document.getElementById('detailView').style.display='none';
   document.title='Chase Ray Dashboard';
   if(_overviewData)renderOverview(_overviewData);
@@ -648,7 +648,7 @@ function showOverview(){
 
 function renderOverview(data){
   _overviewData=data;
-  if(document.getElementById('detailView').style.display!==''){return;};
+  if(document.getElementById('detailView').style.display==='block'){return;};
   var dot=document.getElementById('runDot');
   dot.className='status-dot '+(data.running?'dot-running':'dot-stopped');
   document.getElementById('runStatus').textContent=data.running?'Running':'Stopped';
@@ -692,7 +692,7 @@ function renderOverview(data){
 /* ---- Detail View ---- */
 function showDetail(name){
   document.getElementById('overviewView').style.display='none';
-  document.getElementById('detailView').style.display='';
+  document.getElementById('detailView').style.display='block';
   document.getElementById('headerInfo').style.display='none';
   document.title=name+' - Chase Ray';
   var dv=document.getElementById('detailView');
