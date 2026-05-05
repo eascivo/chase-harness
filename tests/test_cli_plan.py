@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from chase.cli import cmd_approve, cmd_plan
+from chase.cli import cmd_approve, cmd_plan, cmd_status
 from chase.config import ChaseConfig
 from chase.orchestrator import Orchestrator
 from chase.state import StateDir
@@ -100,3 +100,34 @@ def test_orchestrator_requires_approval_when_configured(tmp_path):
     state.approval_file.write_text(json.dumps({"approved": True}), encoding="utf-8")
 
     assert orch._approval_granted() is True
+
+
+def test_status_prints_failure_reason_and_evidence_path(tmp_path, capsys):
+    ws = tmp_path
+    sprints = ws / ".chase" / "sprints"
+    logs = ws / ".chase" / "logs"
+    sprints.mkdir(parents=True)
+    (ws / ".chase" / "handoffs").mkdir()
+    logs.mkdir()
+    (logs / "cost-tracking.json").write_text('{"total_cost": 0.0, "sprints": []}\n', encoding="utf-8")
+    (ws / "MISSION.md").write_text("# Goal\nStatus test\n", encoding="utf-8")
+    (sprints / "01-contract.md").write_text(json.dumps({
+        "id": 1,
+        "title": "Fix login",
+        "contract": {"criteria": ["Reject invalid login"], "test_command": ""},
+        "files_likely_touched": ["login.py", "auth.py", "views.py", "tests.py"],
+    }), encoding="utf-8")
+    (sprints / "01-eval.json").write_text(json.dumps({
+        "verdict": "FAIL",
+        "score": 0.4,
+        "feedback": "function is missing",
+    }), encoding="utf-8")
+    (sprints / "01-verification.md").write_text("# evidence\n", encoding="utf-8")
+
+    exit_code = cmd_status(Args(str(ws)))
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "reason: implementation_incomplete" in out
+    assert "risk: high" in out
+    assert "01-verification.md" in out

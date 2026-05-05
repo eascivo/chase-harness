@@ -16,7 +16,7 @@ from chase.logging import ChaseLogger
 from chase.orchestrator import Orchestrator
 from chase.ray.cli import handle_ray, register_parser as register_ray
 from chase.state import StateDir
-from chase.trust import render_plan_preview
+from chase.trust import classify_failure, estimate_contract_risk, render_plan_preview
 
 
 def resolve_workspace(arg: str | None) -> Path:
@@ -226,7 +226,9 @@ def cmd_status(args) -> int:
             contract = json.loads(contract_path.read_text())
             title = contract.get("title", "?")
         except Exception:
+            contract = {}
             title = "?"
+        risk = estimate_contract_risk(contract)
 
         eval_path = state.sprint_eval(sid)
         if eval_path.exists():
@@ -234,21 +236,25 @@ def cmd_status(args) -> int:
                 eval_data = json.loads(eval_path.read_text())
                 verdict = eval_data.get("verdict", "?")
                 score = eval_data.get("score", "?")
+                reason = classify_failure(eval_data)
                 if verdict == "PASS":
                     pass_count += 1
                     print(f"  \033[32m[PASS]\033[0m  Sprint {sid}: {title} (score: {score})")
                 else:
                     fail_count += 1
                     print(f"  \033[31m[FAIL]\033[0m Sprint {sid}: {title} (score: {score})")
+                print(f"          risk: {risk} | reason: {reason}")
                 card_path = state.sprint_verification_card(sid)
                 if card_path.exists():
                     print(f"          evidence: {card_path}")
             except Exception:
                 pend_count += 1
                 print(f"  [----]  Sprint {sid}: {title}")
+                print(f"          risk: {risk}")
         else:
             pend_count += 1
             print(f"  [----]  Sprint {sid}: {title}")
+            print(f"          risk: {risk}")
 
     if sprint_count == 0:
         print("  (no sprints yet — run 'chase run' to start)")
