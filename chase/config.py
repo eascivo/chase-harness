@@ -29,6 +29,9 @@ class ChaseConfig:
     cdp_port: int = 9222
     computer_use_enabled: bool = False
 
+    # Trust workflow
+    require_approval: bool = False
+
     # CLI adapter
     cli: str = "claude"
 
@@ -75,6 +78,8 @@ class ChaseConfig:
             # Computer Use
             cdp_port=int(os.environ.get("CHASE_CDP_PORT", "9222")),
             computer_use_enabled=os.environ.get("CHASE_COMPUTER_USE", "") == "1",
+            # Trust workflow
+            require_approval=os.environ.get("CHASE_REQUIRE_APPROVAL", "") == "1",
             # CLI adapter
             cli=os.environ.get("CHASE_CLI", "claude"),
             # Global LLM

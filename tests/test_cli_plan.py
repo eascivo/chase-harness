@@ -2,6 +2,9 @@ import json
 from pathlib import Path
 
 from chase.cli import cmd_approve, cmd_plan
+from chase.config import ChaseConfig
+from chase.orchestrator import Orchestrator
+from chase.state import StateDir
 
 
 class Args:
@@ -82,3 +85,18 @@ def test_cmd_plan_prefers_negotiated_contracts(tmp_path):
     assert "Sprint 1: Negotiated title" in preview
     assert "Negotiated criterion" in preview
     assert "Raw criterion" not in preview
+
+
+def test_orchestrator_requires_approval_when_configured(tmp_path):
+    ws = tmp_path
+    state = StateDir.for_workspace(ws)
+    state.init_directories()
+    (ws / "MISSION.md").write_text("# Goal\nTest gate\n", encoding="utf-8")
+    config = ChaseConfig(chase_home=Path.cwd(), workspace=ws, require_approval=True)
+    orch = Orchestrator(config, state)
+
+    assert orch._approval_granted() is False
+
+    state.approval_file.write_text(json.dumps({"approved": True}), encoding="utf-8")
+
+    assert orch._approval_granted() is True

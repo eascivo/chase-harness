@@ -105,6 +105,11 @@ class Orchestrator:
             # Contract Negotiation
             self.negotiator.run(sprint_id, self.cost, self.logger)
 
+            if not self._approval_granted():
+                self.logger.error("Plan approval required. Run `chase plan`, review it, then run `chase approve`.")
+                generate_handoff(self.state, self.config, self.cost, sprint_id, "approval_required")
+                return 1
+
             # Generator-Evaluator retry loop
             retry_count = 0
             error_count = 0
@@ -207,6 +212,15 @@ class Orchestrator:
         if design_score is not None:
             return round(score * 0.7 + design_score * 0.3, 2)
         return score
+
+    def _approval_granted(self) -> bool:
+        if not self.config.require_approval:
+            return True
+        try:
+            data = json.loads(self.state.approval_file.read_text())
+            return bool(data.get("approved"))
+        except Exception:
+            return False
 
     def _git_head(self) -> str:
         try:
