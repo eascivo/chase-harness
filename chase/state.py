@@ -30,6 +30,14 @@ class StateDir:
     def cost_file(self) -> Path:
         return self.logs / "cost-tracking.json"
 
+    @property
+    def plan_preview_file(self) -> Path:
+        return self.root / "plan-preview.md"
+
+    @property
+    def approval_file(self) -> Path:
+        return self.root / "approved.json"
+
     def log_file(self, date_str: str) -> Path:
         return self.logs / f"{date_str}.log"
 
@@ -55,6 +63,9 @@ class StateDir:
 
     def sprint_interaction_evidence(self, sprint_id: int) -> Path:
         return self.sprints / f"{sprint_id:02d}-interaction-evidence.json"
+
+    def sprint_verification_card(self, sprint_id: int) -> Path:
+        return self.sprints / f"{sprint_id:02d}-verification.md"
 
     def existing_contracts(self) -> list[Path]:
         return sorted(self.sprints.glob("??-contract.md"))
