@@ -83,6 +83,14 @@ chase ray start
 
 Approved projects run `chase run`. Ray writes the same sprint evidence files as normal Chase, including `.chase/sprints/NN-verification.md`.
 
+Ray also syncs queue state from each project's `.chase/` directory before `ray status` and `ray start`. You can run it explicitly:
+
+```bash
+chase ray sync
+```
+
+If a project is completed outside Ray, sync updates it to `completed` when all sprint evals pass, or `needs_review` when any sprint eval is `FAIL` or `ERROR`. `needs_review` means Chase ran and found acceptance issues; `failed` is reserved for process or environment failures.
+
 ## Uninstall
 
 ```bash

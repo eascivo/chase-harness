@@ -12,6 +12,7 @@ from chase.logging import ChaseLogger
 from chase.ray.config import (
     STATUS_COMPLETED,
     STATUS_FAILED,
+    STATUS_NEEDS_REVIEW,
     STATUS_PENDING,
     STATUS_WAITING_APPROVAL,
     RayConfig,
@@ -19,6 +20,7 @@ from chase.ray.config import (
 )
 from chase.ray.monitor import POLL_INTERVAL, Monitor
 from chase.ray.scheduler import Scheduler
+from chase.ray.sync import sync_config
 
 # 全局引用，供信号处理器使用
 _monitor: Monitor | None = None
@@ -79,6 +81,7 @@ def run_loop(state: RayStateDir, logger: ChaseLogger) -> None:
         while True:
             # 1. 读取最新 queue.json
             config = state.load_queue()
+            sync_config(config)
             scheduler = Scheduler(config)
 
             # 2. 更新阻塞状态
@@ -97,7 +100,7 @@ def run_loop(state: RayStateDir, logger: ChaseLogger) -> None:
 
             # 5. 检查是否全部完成
             all_done = all(
-                p.status in (STATUS_COMPLETED, STATUS_FAILED, STATUS_WAITING_APPROVAL)
+                p.status in (STATUS_COMPLETED, STATUS_FAILED, STATUS_NEEDS_REVIEW, STATUS_WAITING_APPROVAL)
                 for p in config.projects
             )
             if all_done and monitor.active_count() == 0:

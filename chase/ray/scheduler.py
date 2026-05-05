@@ -6,6 +6,7 @@ from chase.ray.config import (
     STATUS_BLOCKED,
     STATUS_COMPLETED,
     STATUS_FAILED,
+    STATUS_NEEDS_REVIEW,
     STATUS_PAUSED,
     STATUS_PENDING,
     STATUS_PLANNING,

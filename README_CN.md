@@ -83,6 +83,14 @@ chase ray start
 
 已审批项目会运行 `chase run`。Ray 会保留普通 Chase 的 sprint 证据文件，包括 `.chase/sprints/NN-verification.md`。
 
+Ray 会在 `ray status` 和 `ray start` 前自动从各项目的 `.chase/` 目录同步队列状态。也可以手动执行：
+
+```bash
+chase ray sync
+```
+
+如果某个项目在 Ray 外部完成，sync 会在所有 sprint eval 都通过时标记为 `completed`；如果存在 `FAIL` 或 `ERROR`，则标记为 `needs_review`。`needs_review` 表示 Chase 正常运行但验收未全过；`failed` 保留给进程或环境层失败。
+
 ## 卸载
 
 ```bash

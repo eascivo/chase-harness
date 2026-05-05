@@ -14,6 +14,7 @@ from chase.ray.config import (
     STATUS_BLOCKED,
     STATUS_COMPLETED,
     STATUS_FAILED,
+    STATUS_NEEDS_REVIEW,
     STATUS_PAUSED,
     STATUS_PENDING,
     STATUS_PLANNING,
@@ -23,6 +24,7 @@ from chase.ray.config import (
     RayStateDir,
 )
 from chase.ray.daemon import daemonize, generate_launchd_template, run_loop
+from chase.ray.sync import sync_config
 
 
 def _state(args=None) -> RayStateDir:
@@ -42,6 +44,7 @@ _STATUS_COLORS = {
     STATUS_WAITING_APPROVAL: lambda s: f"\033[33m{s}\033[0m",
     STATUS_RUNNING: lambda s: green(s),
     STATUS_COMPLETED: lambda s: green(s),
+    STATUS_NEEDS_REVIEW: lambda s: f"\033[33m{s}\033[0m",
     STATUS_FAILED: lambda s: f"\033[31m{s}\033[0m",
     STATUS_PAUSED: lambda s: f"\033[33m{s}\033[0m",
     STATUS_BLOCKED: lambda s: f"\033[33m{s}\033[0m",
@@ -68,6 +71,8 @@ def cmd_start(args) -> int:
     """启动编排循环。"""
     state = _state(args)
     config = state.load_queue()
+    sync_config(config)
+    state.save_queue(config)
 
     if not config.projects:
         print_red("队列为空。请先编辑 queue.json 或使用 chase ray dispatch 添加项目")
@@ -171,6 +176,8 @@ def cmd_status(args) -> int:
         return 1
 
     config = state.load_queue()
+    sync_config(config)
+    state.save_queue(config)
 
     if not config.projects:
         print("队列为空")
@@ -205,6 +212,20 @@ def cmd_status(args) -> int:
 
     parts = [f"{v} {k}" for k, v in sorted(counts.items())]
     print(f"  总计: {len(config.projects)} 项目 | {' | '.join(parts)}")
+    return 0
+
+
+def cmd_sync(args) -> int:
+    """同步 Ray 队列状态与各项目 .chase 状态。"""
+    state = _state(args)
+    if not state.queue_file.exists():
+        print_yellow("Ray 未初始化。运行 chase ray init")
+        return 1
+
+    config = state.load_queue()
+    sync_config(config)
+    state.save_queue(config)
+    print_green("Ray 状态已同步")
     return 0
 
 
@@ -387,6 +408,9 @@ def register_parser(sub) -> None:
     # status
     ray_sub.add_parser("status", help="查看所有项目状态汇总")
 
+    # sync
+    ray_sub.add_parser("sync", help="同步队列与各项目 .chase 状态")
+
     # approve
     p = ray_sub.add_parser("approve", help="审批某项目，允许执行 chase run")
     p.add_argument("name", help="项目名称")
@@ -426,6 +450,7 @@ _DISPATCH = {
     "dispatch": cmd_dispatch,
     "approve": cmd_approve,
     "status": cmd_status,
+    "sync": cmd_sync,
     "pause": cmd_pause,
     "resume": cmd_resume,
     "priority": cmd_priority,
@@ -449,6 +474,7 @@ def handle_ray(args) -> int:
         print("  init              初始化 Ray 编排环境")
         print("  start [--daemon]  启动编排循环")
         print("  dispatch <path>   动态派发新项目")
+        print("  sync              同步队列与各项目 .chase 状态")
         print("  approve <name>    审批项目，允许执行 chase run")
         print("  status            查看项目状态汇总")
         print("  pause <name>      暂停某项目")
