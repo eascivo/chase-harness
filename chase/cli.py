@@ -240,6 +240,9 @@ def cmd_status(args) -> int:
                 else:
                     fail_count += 1
                     print(f"  \033[31m[FAIL]\033[0m Sprint {sid}: {title} (score: {score})")
+                card_path = state.sprint_verification_card(sid)
+                if card_path.exists():
+                    print(f"          evidence: {card_path}")
             except Exception:
                 pend_count += 1
                 print(f"  [----]  Sprint {sid}: {title}")

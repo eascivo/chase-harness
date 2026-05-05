@@ -14,6 +14,7 @@ from chase.cost import CostTracker
 from chase.handoff import generate_handoff
 from chase.logging import ChaseLogger
 from chase.state import StateDir
+from chase.trust import render_verification_card
 
 
 class Orchestrator:
@@ -147,6 +148,7 @@ class Orchestrator:
 
                 # Reset error count on successful evaluation
                 error_count = 0
+                self._write_verification_card(sprint_id, eval_result.parsed_data)
 
                 # Parse results
                 score = float(eval_result.parsed_data.get("score", 0))
@@ -221,6 +223,10 @@ class Orchestrator:
             return bool(data.get("approved"))
         except Exception:
             return False
+
+    def _write_verification_card(self, sprint_id: int, eval_data: dict) -> None:
+        card = render_verification_card(sprint_id, eval_data)
+        self.state.sprint_verification_card(sprint_id).write_text(card, encoding="utf-8")
 
     def _git_head(self) -> str:
         try:

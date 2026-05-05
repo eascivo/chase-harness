@@ -4,6 +4,9 @@ from chase.trust import (
     render_plan_preview,
     render_verification_card,
 )
+from chase.config import ChaseConfig
+from chase.orchestrator import Orchestrator
+from chase.state import StateDir
 
 
 def test_render_plan_preview_lists_sprints_and_risk():
@@ -83,3 +86,21 @@ def test_estimate_contract_risk_uses_files_criteria_and_test_command():
 
     assert low == "low"
     assert high == "high"
+
+
+def test_orchestrator_writes_verification_card(tmp_path):
+    state = StateDir.for_workspace(tmp_path)
+    state.init_directories()
+    config = ChaseConfig(chase_home=tmp_path, workspace=tmp_path)
+    orch = Orchestrator(config, state)
+    eval_data = {
+        "score": 1.0,
+        "verdict": "PASS",
+        "criteria": [{"name": "Works", "passes": True, "evidence": "pytest passed"}],
+    }
+
+    orch._write_verification_card(1, eval_data)
+
+    card = state.sprint_verification_card(1).read_text(encoding="utf-8")
+    assert "Sprint 1 Verification Card" in card
+    assert "- [x] Works" in card
