@@ -53,14 +53,59 @@ class EvaluatorAgent(AgentBase):
                 elif page_content or screenshot_file:
                     browser_section += "\n## Browser Verification Evidence\n"
                     if screenshot_file:
-                        browser_section += f"\nScreenshot saved: {screenshot_file}\n"
+                        browser_section += (
+                            f"\nIMPORTANT: A screenshot of the running application is available at:\n"
+                            f"  {screenshot_file}\n"
+                            f"You MUST use the Read tool to examine this image file and evaluate the UI visually.\n"
+                            f"Check: responsive layout at 375px, color consistency, spacing rhythm, "
+                            f"typography, alignment, visual polish.\n"
+                        )
                     if page_content:
                         # Truncate very long page content
                         content_preview = page_content[:3000] + ("..." if len(page_content) > 3000 else "")
                         browser_section += f"\n### Page Content\n```\n{content_preview}\n```\n"
+                        if screenshot_file:
+                            browser_section += (
+                                "\nCompare the screenshot visually against the page content above — "
+                                "verify rendered output matches expected structure.\n"
+                            )
                 logger.sprint(sprint_id, "evaluator", "Browser evidence included in evaluation")
             except Exception as exc:
                 logger.sprint(sprint_id, "evaluator", f"Failed to read browser evidence: {exc}")
+
+        # Check for interaction test evidence
+        interaction_path = self.state.sprint_interaction_evidence(sprint_id)
+        if interaction_path.exists():
+            try:
+                interaction_data = json.loads(interaction_path.read_text())
+                isteps = interaction_data.get("steps", [])
+                if isteps:
+                    browser_section += "\n## Interaction Test Results\n\n"
+                    browser_section += "The generator executed the following interaction steps and captured screenshots:\n\n"
+                    for idx, istep in enumerate(isteps):
+                        browser_section += f"### Step {idx+1}: {istep.get('label', istep.get('action', ''))}\n"
+                        browser_section += f"- Action: {istep.get('action')}\n"
+                        if istep.get("screenshot_path"):
+                            browser_section += (
+                                f"- Screenshot: {istep['screenshot_path']}\n"
+                                f"  You MUST read this screenshot to verify the step result.\n"
+                            )
+                        if istep.get("page_content"):
+                            content_preview = istep["page_content"][:1000]
+                            browser_section += f"- Page content: {content_preview}\n"
+                        if istep.get("error"):
+                            browser_section += f"- ERROR: {istep['error']}\n"
+                        browser_section += "\n"
+                    browser_section += (
+                        "Evaluate each interaction step:\n"
+                        "- Did the navigation reach the correct page?\n"
+                        "- Did form inputs work correctly?\n"
+                        "- Did click actions produce expected results?\n"
+                        "- Is the result page visually correct (based on screenshots)?\n"
+                        "- Are there any errors, empty states, or broken layouts?\n"
+                    )
+            except Exception as exc:
+                logger.sprint(sprint_id, "evaluator", f"Failed to read interaction evidence: {exc}")
 
         # Build Playwright section if enabled (legacy path)
         if self.config.playwright_enabled and self.config.app_url:
@@ -105,16 +150,19 @@ Strictly evaluate the above sprint. Verify each criterion:
 3. Check edge cases and error handling
 4. If browser evidence is provided, use it to verify UI/web functionality
 5. If Playwright is available and criteria involve UI, test in browser
-6. Output JSON evaluation result (only JSON, no other text)"""
+6. If a screenshot path is provided, you MUST read the image with the Read tool and evaluate the UI visually (responsive layout, colors, spacing, typography, alignment, polish)
+7. Include design_score and design_feedback in your JSON output when UI screenshots are available
+8. Output JSON evaluation result (only JSON, no other text)"""
 
         claude_result = run_claude(
             full_prompt,
             cli=self.config.cli,
-            max_turns=15,
+            max_turns=5,  # Evaluator only needs to read files + output JSON
             allowed_tools=allowed_tools,
             model=self.config.get_model("evaluator"),
             env=self.config.get_agent_env("evaluator"),
             cwd=str(self.config.workspace),
+            timeout=480,
         )
 
         cost.track(claude_result.cost, str(sprint_id), "evaluator")

@@ -155,9 +155,9 @@ class _WebSocket:
 # CDP helpers
 # ---------------------------------------------------------------------------
 
-def _http_get(url: str, timeout: float = 5.0) -> str:
-    """GET request via urllib, return body text."""
-    req = urllib.request.Request(url)
+def _http_request(url: str, method: str = "GET", timeout: float = 5.0) -> str:
+    """HTTP request via urllib, return body text."""
+    req = urllib.request.Request(url, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8")
 
@@ -165,7 +165,7 @@ def _http_get(url: str, timeout: float = 5.0) -> str:
 def _cdp_list_targets(host: str = CDP_HOST, port: int = CDP_PORT) -> list[dict]:
     """List open browser targets via CDP HTTP API."""
     try:
-        body = _http_get(f"http://{host}:{port}/json")
+        body = _http_request(f"http://{host}:{port}/json")
         return json.loads(body)
     except Exception:
         return []
@@ -173,14 +173,14 @@ def _cdp_list_targets(host: str = CDP_HOST, port: int = CDP_PORT) -> list[dict]:
 
 def _cdp_new_tab(url: str, host: str = CDP_HOST, port: int = CDP_PORT) -> dict:
     """Open a new tab and return its target info."""
-    body = _http_get(f"http://{host}:{port}/json/new?{urllib.parse.quote(url, safe='')}")
+    body = _http_request(f"http://{host}:{port}/json/new?{urllib.parse.quote(url, safe='')}", method="PUT")
     return json.loads(body)
 
 
 def _cdp_close_tab(target_id: str, host: str = CDP_HOST, port: int = CDP_PORT) -> None:
     """Close a tab by target ID."""
     try:
-        _http_get(f"http://{host}:{port}/json/close/{target_id}")
+        _http_request(f"http://{host}:{port}/json/close/{target_id}", method="PUT")
     except Exception:
         pass
 
@@ -472,4 +472,124 @@ def run_browser_verification(app_url: str, screenshot_path: str | Path,
         result["error"] = str(exc)
     finally:
         close_browser()
+    return result
+
+
+def run_interaction_test(
+    steps: list[dict],
+    base_url: str,
+    screenshot_dir: str | Path,
+    host: str = CDP_HOST,
+    port: int = CDP_PORT,
+) -> dict:
+    """Run a multi-step interaction test in the browser.
+
+    Args:
+        steps: List of interaction steps, each a dict with:
+            - "action": "navigate" | "click" | "type" | "wait" | "screenshot" | "scroll"
+            - "selector": CSS selector (for click/type)
+            - "value": text to type (for type), or URL (for navigate)
+            - "label": human-readable step name (for logging)
+            - "wait_ms": milliseconds to wait after action (default 1000)
+        base_url: App base URL (e.g., "http://localhost:3000")
+        screenshot_dir: Directory to save step screenshots
+        host: CDP host
+        port: CDP port
+
+    Returns:
+        dict with keys:
+            "steps": list of step results, each with:
+                "action", "label", "screenshot_path", "page_content", "error"
+            "error": overall error if any
+    """
+    screenshot_dir = Path(screenshot_dir)
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+
+    result: dict[str, Any] = {"steps": [], "error": None}
+
+    if not steps:
+        return result
+
+    session: BrowserSession | None = None
+    try:
+        # Start browser session — navigate to base_url
+        first_nav = ""
+        for s in steps:
+            if s.get("action") == "navigate":
+                first_nav = s.get("value", "")
+                if first_nav and not first_nav.startswith("http"):
+                    first_nav = base_url.rstrip("/") + "/" + first_nav.lstrip("/")
+                break
+        start_url = first_nav or base_url
+        session = BrowserSession(host, port).launch(start_url)
+        time.sleep(2)  # Wait for initial page load
+
+        for i, step in enumerate(steps):
+            action = step.get("action", "")
+            label = step.get("label", action)
+            wait_ms = step.get("wait_ms", 1000)
+            step_result: dict[str, Any] = {
+                "action": action,
+                "label": label,
+                "screenshot_path": None,
+                "page_content": None,
+                "error": None,
+            }
+
+            try:
+                if action == "navigate":
+                    url = step.get("value", "")
+                    if url and not url.startswith("http"):
+                        url = base_url.rstrip("/") + "/" + url.lstrip("/")
+                    session.navigate(url)
+                    time.sleep(wait_ms / 1000.0)
+
+                elif action == "click":
+                    selector = step.get("selector", "")
+                    session.click(selector)
+                    time.sleep(wait_ms / 1000.0)
+
+                elif action == "type":
+                    selector = step.get("selector", "")
+                    text = step.get("value", "")
+                    session.type_text(selector, text)
+                    time.sleep(wait_ms / 1000.0)
+
+                elif action == "wait":
+                    ms = step.get("wait_ms", 1000)
+                    time.sleep(ms / 1000.0)
+
+                elif action == "screenshot":
+                    pass  # Just capture screenshot below
+
+                elif action == "scroll":
+                    session.evaluate_js("window.scrollBy(0, window.innerHeight)")
+                    time.sleep(wait_ms / 1000.0)
+
+            except Exception as exc:
+                step_result["error"] = str(exc)
+
+            # Capture screenshot for every step
+            try:
+                shot_path = screenshot_dir / f"{i:02d}.png"
+                session.screenshot(shot_path)
+                step_result["screenshot_path"] = str(shot_path)
+            except Exception as exc:
+                if not step_result["error"]:
+                    step_result["error"] = f"Screenshot failed: {exc}"
+
+            # Capture page content
+            try:
+                step_result["page_content"] = session.get_page_content()
+            except Exception:
+                pass
+
+            result["steps"].append(step_result)
+
+    except Exception as exc:
+        result["error"] = str(exc)
+    finally:
+        if session:
+            session.close()
+
     return result

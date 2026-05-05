@@ -60,6 +60,7 @@ class Orchestrator:
 
     def run(self) -> int:
         """Main orchestration loop. Returns exit code."""
+        self.state.init_directories()
         self.preflight()
 
         # Phase 1: Planning
@@ -106,6 +107,8 @@ class Orchestrator:
 
             # Generator-Evaluator retry loop
             retry_count = 0
+            error_count = 0
+            max_errors = 2  # Framework-level errors: skip after 2 consecutive
             passed = False
 
             while retry_count < self.config.max_retries:
@@ -119,15 +122,26 @@ class Orchestrator:
                 gen_result = self.generator.run(sprint_id, feedback, self.cost, self.logger)
                 if not gen_result.success:
                     self.logger.error(f"Sprint {sprint_id} generator failed")
+                    error_count += 1
                     retry_count += 1
+                    if error_count >= max_errors:
+                        self.logger.error(f"Sprint {sprint_id}: {max_errors} consecutive errors, skipping")
+                        break
                     continue
 
                 # Evaluator
                 eval_result = self.evaluator.run(sprint_id, self.cost, self.logger)
                 if not eval_result.success or eval_result.parsed_data is None:
                     self.logger.error(f"Sprint {sprint_id} evaluator no output")
+                    error_count += 1
                     retry_count += 1
+                    if error_count >= max_errors:
+                        self.logger.error(f"Sprint {sprint_id}: {max_errors} consecutive errors, skipping")
+                        break
                     continue
+
+                # Reset error count on successful evaluation
+                error_count = 0
 
                 # Parse results
                 score = float(eval_result.parsed_data.get("score", 0))
@@ -152,6 +166,8 @@ class Orchestrator:
                     self._mark_eval_pass(eval_path)
                     break
                 else:
+                    # Legitimate FAIL (not ERROR) — reset error count, allow retries
+                    error_count = 0
                     retry_count += 1
                     self.logger.sprint(sprint_id, "result",
                         f"Not passed (score={final_score} < threshold={self.config.eval_threshold}), "

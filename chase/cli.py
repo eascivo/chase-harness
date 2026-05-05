@@ -36,7 +36,7 @@ def resolve_workspace(arg: str | None) -> Path:
             raise SystemExit(1)
         return path
 
-    cwd = Path.cwd()
+    cwd = Path.cwd().resolve()
 
     # 3. Current directory has MISSION.md
     if (cwd / "MISSION.md").exists():
@@ -106,7 +106,7 @@ def cmd_init(args) -> int:
 # CHASE_COST_LIMIT=10000.0
 
 # Sprint tuning
-# CHASE_MAX_RETRIES=3
+# CHASE_MAX_RETRIES=10
 # CHASE_EVAL_THRESHOLD=0.7
 """)
         print_green("Created .chase/.env")

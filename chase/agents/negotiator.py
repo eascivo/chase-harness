@@ -51,6 +51,7 @@ Refine the above sprint contract into a precise, negotiable checklist. Output on
             model=self.config.get_model("planner"),
             env=self.config.get_agent_env("planner"),
             cwd=str(self.config.workspace),
+            timeout=300,  # Negotiator is simple, 5 min is plenty
         )
 
         cost.track(result.cost, str(sprint_id), "negotiator")
@@ -59,9 +60,48 @@ Refine the above sprint contract into a precise, negotiable checklist. Output on
         negotiated_json = extract_json_from_text(result.result_text)
 
         if negotiated_json is None:
-            # Non-fatal: fall back to original contract
-            logger.sprint(sprint_id, "negotiator", "Failed to parse, using original contract")
-            shutil.copy2(contract_path, negotiated_path)
+            # Non-fatal: convert original contract to negotiated format
+            logger.sprint(sprint_id, "negotiator", "Failed to parse, converting original to negotiated format")
+            try:
+                original = json.loads(contract)
+                criteria_list = []
+                # Extract criteria from either contract.criteria or top-level criteria
+                raw_criteria = []
+                if isinstance(original, dict):
+                    inner = original.get("contract", original)
+                    if isinstance(inner, dict):
+                        raw_criteria = inner.get("criteria", [])
+                    elif isinstance(inner, list):
+                        raw_criteria = inner
+
+                for i, c in enumerate(raw_criteria):
+                    if isinstance(c, str):
+                        criteria_list.append({
+                            "id": f"C{i+1}",
+                            "criterion": c,
+                            "verification": f"Manual verification",
+                            "priority": "must",
+                        })
+                    elif isinstance(c, dict):
+                        criteria_list.append({
+                            "id": c.get("id", f"C{i+1}"),
+                            "criterion": c.get("criterion", c.get("name", c.get("description", ""))),
+                            "verification": c.get("verification", c.get("test_command", "Manual")),
+                            "priority": c.get("priority", "must"),
+                        })
+
+                negotiated_fallback = {
+                    "sprint_id": sprint_id,
+                    "title": original.get("title", f"Sprint {sprint_id}"),
+                    "description": original.get("description", ""),
+                    "negotiated_criteria": criteria_list,
+                }
+                negotiated_path.write_text(json.dumps(negotiated_fallback, ensure_ascii=False, indent=2) + "\n")
+                logger.sprint(sprint_id, "negotiator", f"Fallback: {len(criteria_list)} criteria converted")
+            except Exception as exc:
+                # Last resort: copy as-is
+                logger.sprint(sprint_id, "negotiator", f"Fallback conversion failed ({exc}), copying original")
+                shutil.copy2(contract_path, negotiated_path)
             return AgentResult(success=True, cost=result.cost, raw_text=result.result_text, parsed_data=None)
 
         # Write negotiated file

@@ -17,7 +17,7 @@ class ChaseConfig:
     # Cost & iteration
     cost_limit: float = 10000.0
     max_sprints: int = 50
-    max_retries: int = 3
+    max_retries: int = 10
     stale_limit: int = 3
     eval_threshold: float = 0.7
 
@@ -66,7 +66,7 @@ class ChaseConfig:
             # Budget & iteration
             cost_limit=float(os.environ.get("CHASE_COST_LIMIT", "10000.0")),
             max_sprints=int(os.environ.get("CHASE_MAX_SPRINTS", "50")),
-            max_retries=int(os.environ.get("CHASE_MAX_RETRIES", "3")),
+            max_retries=int(os.environ.get("CHASE_MAX_RETRIES", "10")),
             stale_limit=int(os.environ.get("CHASE_STALE_LIMIT", "3")),
             eval_threshold=float(os.environ.get("CHASE_EVAL_THRESHOLD", "0.7")),
             # Playwright

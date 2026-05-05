@@ -60,6 +60,39 @@ Design score scale:
 - **0.4** — Works but looks unfinished, major design issues
 - **0.2** — Barely styled, looks broken on some viewports
 
+## Visual Review Instructions (when browser screenshots are available)
+
+When a screenshot path is provided in the evidence section:
+1. **You MUST read the screenshot image** using the Read tool — this is not optional
+2. Evaluate the following aspects:
+   - **Responsive Design**: Does the layout work correctly at 375px (mobile) width? Any overflow, clipping, or broken layouts?
+   - **Color Palette**: Are colors from a coherent, intentional palette? Any jarring random colors?
+   - **Typography**: Clear hierarchy between headings, body text, and labels? Consistent font sizes?
+   - **Spacing**: Consistent padding/margin rhythm (e.g., 8px grid)? No uneven gaps?
+   - **Visual Polish**: Any clipped text, broken images, misaligned elements, or rendering artifacts?
+   - **Design System Consistency**: If multiple pages/sections are visible, do they share the same visual language?
+   - **Dark Mode Quality**: If the app uses dark theme, is contrast sufficient? Text readable?
+3. Include `design_score` and `design_feedback` in your JSON output
+4. Be specific: "Button at bottom right is clipped at 375px" > "Some layout issues"
+
+## Interaction Test Evaluation (when interaction evidence is available)
+
+When interaction test results are provided (multi-step browser automation):
+1. **Read every step screenshot** to verify the result of that step
+2. Evaluate each step:
+   - **Navigation**: Did the page load correctly? Any loading errors or blank states?
+   - **Form Input**: Was the text entered correctly? Any input validation errors?
+   - **Button Click**: Did the action trigger? Did the UI respond?
+   - **Result Verification**: After submit/action, did the result page show expected content?
+   - **State Changes**: Did the UI update correctly after interaction?
+3. Score interaction tests separately with `interaction_score` (0.0-1.0):
+   - 1.0 = All steps completed successfully, all screenshots show correct results
+   - 0.8 = Minor UI issues but all interactions functionally worked
+   - 0.5 = Some steps failed or showed incorrect results
+   - 0.0 = Most or all steps failed
+4. Include `interaction_feedback` with specific issues per step
+5. If a step has an error, that step automatically fails
+
 ## Common Failure Patterns (must check)
 
 1. **Stub implementation** — function exists but only has `pass` or `return None`
