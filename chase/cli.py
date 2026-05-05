@@ -107,8 +107,9 @@ def cmd_init(args) -> int:
 # Budget
 # CHASE_COST_LIMIT=10000.0
 
-# Require explicit `chase approve` before Generator modifies code
-# CHASE_REQUIRE_APPROVAL=1
+# Approval is required by default before Generator modifies code.
+# Set to 0 only when you want fully automatic runs.
+# CHASE_REQUIRE_APPROVAL=0
 
 # Sprint tuning
 # CHASE_MAX_RETRIES=10

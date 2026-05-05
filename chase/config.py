@@ -30,7 +30,7 @@ class ChaseConfig:
     computer_use_enabled: bool = False
 
     # Trust workflow
-    require_approval: bool = False
+    require_approval: bool = True
 
     # CLI adapter
     cli: str = "claude"
@@ -79,7 +79,7 @@ class ChaseConfig:
             cdp_port=int(os.environ.get("CHASE_CDP_PORT", "9222")),
             computer_use_enabled=os.environ.get("CHASE_COMPUTER_USE", "") == "1",
             # Trust workflow
-            require_approval=os.environ.get("CHASE_REQUIRE_APPROVAL", "") == "1",
+            require_approval=_env_flag("CHASE_REQUIRE_APPROVAL", default=True),
             # CLI adapter
             cli=os.environ.get("CHASE_CLI", "claude"),
             # Global LLM
@@ -133,3 +133,10 @@ class ChaseConfig:
                 env["OPENAI_BASE_URL"] = base_url
 
         return env
+
+
+def _env_flag(name: str, *, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}

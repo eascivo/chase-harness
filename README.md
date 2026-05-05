@@ -46,16 +46,22 @@ chase status     # check progress anytime
 
 ## Trust Workflow
 
-For safer autonomous runs, enable approval gating:
+Approval gating is enabled by default:
 
 ```bash
-CHASE_REQUIRE_APPROVAL=1 chase plan
+chase plan
 # review .chase/plan-preview.md
 chase approve
 chase run
 ```
 
 `chase plan` generates sprint contracts and a human-readable preview without running Generator. After each evaluated sprint, Chase writes `.chase/sprints/NN-verification.md` with the criteria, evidence, test output, score, verdict, and failure reason.
+
+For fully automatic runs, explicitly disable approval:
+
+```bash
+CHASE_REQUIRE_APPROVAL=0 chase run
+```
 
 ## Uninstall
 
@@ -115,7 +121,7 @@ Each agent can use a different provider — e.g., GPT for planning, Claude for c
 | `CHASE_MAX_RETRIES` | `3` | Max retries per sprint |
 | `CHASE_EVAL_THRESHOLD` | `0.7` | Pass score threshold (0-1) |
 | `CHASE_STALE_LIMIT` | `3` | Consecutive no-progress limit |
-| `CHASE_REQUIRE_APPROVAL` | `""` | Set to `1` to require `chase approve` before Generator modifies code |
+| `CHASE_REQUIRE_APPROVAL` | `"1"` | Approval is required by default. Set to `0`, `false`, `no`, or `off` for fully automatic runs |
 
 ### UI Testing
 

@@ -102,6 +102,22 @@ def test_orchestrator_requires_approval_when_configured(tmp_path):
     assert orch._approval_granted() is True
 
 
+def test_config_requires_approval_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("CHASE_REQUIRE_APPROVAL", raising=False)
+
+    config = ChaseConfig.from_env(tmp_path)
+
+    assert config.require_approval is True
+
+
+def test_config_can_disable_approval_explicitly(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHASE_REQUIRE_APPROVAL", "0")
+
+    config = ChaseConfig.from_env(tmp_path)
+
+    assert config.require_approval is False
+
+
 def test_status_prints_failure_reason_and_evidence_path(tmp_path, capsys):
     ws = tmp_path
     sprints = ws / ".chase" / "sprints"
