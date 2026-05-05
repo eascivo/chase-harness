@@ -161,13 +161,19 @@ class Monitor:
             return False
 
     def terminate_all(self) -> None:
-        """向所有子进程发送 SIGTERM。"""
+        """向所有子进程发送 SIGTERM（包含整个进程组）。"""
+        import os as _os
         for name, slot in self.slots.items():
             try:
-                slot.proc.terminate()
-                self.logger.info(f"已发送 SIGTERM 给 '{name}' (pid={slot.proc.pid})")
-            except OSError:
-                pass
+                _os.killpg(slot.proc.pid, signal.SIGTERM)
+                self.logger.info(f"已发送 SIGTERM 给 '{name}' 进程组 (pid={slot.proc.pid})")
+            except (OSError, ProcessLookupError):
+                # Fallback: 只杀直接子进程
+                try:
+                    slot.proc.terminate()
+                    self.logger.info(f"已发送 SIGTERM 给 '{name}' (pid={slot.proc.pid})")
+                except OSError:
+                    pass
 
     def wait_all(self, timeout: float = 30) -> None:
         """等待所有子进程退出。"""

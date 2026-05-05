@@ -297,22 +297,24 @@ class BrowserSession:
 
     def click(self, selector: str) -> dict:
         """Click the first element matching *selector*."""
-        # Locate the node
-        doc = self._send("DOM.getDocument", {"depth": -1})
-        root_id = doc["root"]["nodeId"]
-        qr = self._send("DOM.querySelector", {"nodeId": root_id, "selector": selector})
-        node_id = qr.get("nodeId", 0)
-        if not node_id:
+        # Use JS to get coordinates directly — avoids expensive DOM.getDocument(depth=-1)
+        js = f"""
+        (function() {{
+            var el = document.querySelector({json.dumps(selector)});
+            if (!el) return null;
+            var rect = el.getBoundingClientRect();
+            return {{x: rect.left + rect.width/2, y: rect.top + rect.height/2}};
+        }})()
+        """
+        result = self._send("Runtime.evaluate", {
+            "expression": js,
+            "returnByValue": True,
+        })
+        coords = result.get("result", {}).get("value")
+        if not coords or "x" not in coords:
             raise ValueError(f"Element not found: {selector}")
 
-        # Get its position
-        box = self._send("DOM.getBoxModel", {"nodeId": node_id})
-        content = box.get("model", box).get("content", [])
-        if len(content) >= 2:
-            x = sum(content[i] for i in range(0, len(content), 2)) / (len(content) // 2)
-            y = sum(content[i] for i in range(1, len(content), 2)) / (len(content) // 2)
-        else:
-            raise ValueError(f"Cannot determine position for: {selector}")
+        x, y = coords["x"], coords["y"]
 
         # Dispatch mouse events
         for event_type in ("mousePressed", "mouseReleased"):

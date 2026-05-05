@@ -35,7 +35,9 @@ def run_cli(
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env, cwd=cwd)
         raw_stdout = proc.stdout
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired:
+        return CLIResult(result_text="", cost=0.0, raw_output="[TIMEOUT]")
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return CLIResult(result_text="", cost=0.0, raw_output="")
 
     return adapter.parse_output(raw_stdout)

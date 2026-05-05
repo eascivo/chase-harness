@@ -182,7 +182,7 @@ Strictly evaluate the above sprint. Verify each criterion:
             passed = sum(1 for c in criteria if isinstance(c, dict) and c.get("passes"))
             total = len(criteria)
             score = round(passed / total, 2) if total > 0 else 0.0
-            verdict = "PASS" if score >= 0.7 else "FAIL"
+            verdict = "PASS" if score >= self.config.eval_threshold else "FAIL"
             eval_json = {
                 "score": score,
                 "verdict": verdict,
@@ -193,8 +193,10 @@ Strictly evaluate the above sprint. Verify each criterion:
                 ),
             }
 
-        # Write eval file
-        eval_path.write_text(json.dumps(eval_json, ensure_ascii=False, indent=2) + "\n")
+        # Write eval file (atomic via tempfile)
+        _tmp = eval_path.with_suffix(".tmp")
+        _tmp.write_text(json.dumps(eval_json, ensure_ascii=False, indent=2) + "\n")
+        _tmp.rename(eval_path)
 
         score = eval_json.get("score", 0)
         verdict = eval_json.get("verdict", "UNKNOWN")
@@ -205,8 +207,9 @@ Strictly evaluate the above sprint. Verify each criterion:
     def _get_git_diff(self) -> str:
         try:
             proc = subprocess.run(
-                ["git", "diff", "HEAD~1", "--stat"],
+                ["git", "diff", "HEAD~1", "--stat", "--diff-filter=M"],
                 capture_output=True, text=True, timeout=10,
+                cwd=str(self.config.workspace),
             )
             return proc.stdout.strip() or "no diff"
         except Exception:

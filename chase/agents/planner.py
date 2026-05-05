@@ -48,6 +48,7 @@ Output a JSON array of sprint contracts. Only output JSON, no other text."""
             model=self.config.get_model("planner"),
             env=self.config.get_agent_env("planner"),
             cwd=str(self.config.workspace),
+            timeout=300,
         )
 
         cost.track(result.cost, "0", "planner")

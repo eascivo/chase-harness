@@ -48,8 +48,8 @@ Refine the above sprint contract into a precise, negotiable checklist. Output on
             cli=self.config.cli,
             max_turns=10,
             allowed_tools=["Read", "Glob", "Grep"],
-            model=self.config.get_model("planner"),
-            env=self.config.get_agent_env("planner"),
+            model=self.config.get_model("negotiator"),
+            env=self.config.get_agent_env("negotiator"),
             cwd=str(self.config.workspace),
             timeout=300,  # Negotiator is simple, 5 min is plenty
         )
@@ -104,8 +104,10 @@ Refine the above sprint contract into a precise, negotiable checklist. Output on
                 shutil.copy2(contract_path, negotiated_path)
             return AgentResult(success=True, cost=result.cost, raw_text=result.result_text, parsed_data=None)
 
-        # Write negotiated file
-        negotiated_path.write_text(json.dumps(negotiated_json, ensure_ascii=False, indent=2) + "\n")
+        # Write negotiated file (atomic via tempfile)
+        _tmp = negotiated_path.with_suffix(".tmp")
+        _tmp.write_text(json.dumps(negotiated_json, ensure_ascii=False, indent=2) + "\n")
+        _tmp.rename(negotiated_path)
 
         criteria = negotiated_json.get("negotiated_criteria", []) if isinstance(negotiated_json, dict) else []
         logger.sprint(sprint_id, "negotiator", f"Done: {len(criteria)} criteria, cost ${result.cost:.4f}")
