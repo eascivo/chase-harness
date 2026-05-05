@@ -28,6 +28,11 @@ class Project:
     depends_on: list[str] = field(default_factory=list)
     status: str = STATUS_PENDING
     approved: bool = False
+    planned_at: str | None = None
+    approved_at: str | None = None
+    run_at: str | None = None
+    completed_at: str | None = None
+    needs_review_at: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -37,6 +42,11 @@ class Project:
             "depends_on": list(self.depends_on),
             "status": self.status,
             "approved": self.approved,
+            "planned_at": self.planned_at,
+            "approved_at": self.approved_at,
+            "run_at": self.run_at,
+            "completed_at": self.completed_at,
+            "needs_review_at": self.needs_review_at,
         }
 
     @classmethod
@@ -48,6 +58,11 @@ class Project:
             depends_on=d.get("depends_on", []),
             status=d.get("status", STATUS_PENDING),
             approved=d.get("approved", False),
+            planned_at=d.get("planned_at"),
+            approved_at=d.get("approved_at"),
+            run_at=d.get("run_at"),
+            completed_at=d.get("completed_at"),
+            needs_review_at=d.get("needs_review_at"),
         )
 
 

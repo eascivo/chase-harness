@@ -77,6 +77,7 @@ chase ray start
 未审批项目会先运行 `chase plan`，然后进入 `waiting_approval`。查看每个项目的 `.chase/plan-preview.md` 后，逐个审批并再次启动 Ray：
 
 ```bash
+chase ray inspect api
 chase ray approve api
 chase ray start
 ```
@@ -90,6 +91,15 @@ chase ray sync
 ```
 
 如果某个项目在 Ray 外部完成，sync 会在所有 sprint eval 都通过时标记为 `completed`；如果存在 `FAIL` 或 `ERROR`，则标记为 `needs_review`。`needs_review` 表示 Chase 正常运行但验收未全过；`failed` 保留给进程或环境层失败。
+
+常用审阅命令：
+
+```bash
+chase ray inspect api              # 查看计划预览和验收卡
+chase ray inspect api --sprint 2   # 只查看某个 sprint 的验收卡
+chase ray log api                  # 查看项目审计时间线
+chase ray approve --all-low-risk   # 只自动审批全部 sprint 均为低风险的项目
+```
 
 ## 卸载
 

@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from chase.fmt import bold, green, print_bold, print_green, print_red, print_yellow
+from chase.fmt import bold, green, red, yellow, print_bold, print_green, print_red, print_yellow
 from chase.logging import ChaseLogger
 from chase.ray.config import (
     STATUS_BLOCKED,
@@ -25,6 +25,7 @@ from chase.ray.config import (
 )
 from chase.ray.daemon import daemonize, generate_launchd_template, run_loop
 from chase.ray.sync import sync_config
+from chase.trust import estimate_contract_risk
 
 
 def _state(args=None) -> RayStateDir:
@@ -142,15 +143,60 @@ def cmd_approve(args) -> int:
     state = _state(args)
     config = state.load_queue()
 
+    if getattr(args, "all_low_risk", False):
+        return _approve_all_low_risk(state, config)
+
     name = args.name
+    if not name:
+        print_red("项目名称必填，或使用 --all-low-risk")
+        return 1
     project = _find_project(config, name)
     if not project:
         print_red(f"项目 '{name}' 不存在")
         return 1
 
+    _approve_project(project, "chase ray approve")
+    state.save_queue(config)
+    print_green(f"已审批项目 '{name}'，下一轮将执行 chase run")
+    return 0
+
+
+def _approve_all_low_risk(state: RayStateDir, config) -> int:
+    waiting = [p for p in config.projects if p.status == STATUS_WAITING_APPROVAL]
+    if not waiting:
+        print("No projects waiting for approval.")
+        return 0
+
+    approved: list[str] = []
+    skipped: list[tuple[str, str]] = []
+    for project in waiting:
+        risk = _project_max_risk(project)
+        if risk == "low":
+            _approve_project(project, "chase ray approve --all-low-risk")
+            approved.append(project.name)
+        else:
+            skipped.append((project.name, risk))
+
+    state.save_queue(config)
+    if approved:
+        print("Approved:")
+        for name in approved:
+            print_green(f"  [approved] {name}")
+    if skipped:
+        print("Skipped - manual review required:")
+        for name, risk in skipped:
+            print_yellow(f"  [skipped] {name} ({risk})")
+    return 0
+
+
+def _approve_project(project: Project, source: str) -> None:
     project.approved = True
     if project.status == STATUS_WAITING_APPROVAL:
         project.status = STATUS_PENDING
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if project.approved_at is None:
+        project.approved_at = now
 
     workspace = Path(project.path).expanduser().resolve()
     chase_dir = workspace / ".chase"
@@ -158,13 +204,36 @@ def cmd_approve(args) -> int:
     approval_file = chase_dir / "approved.json"
     approval_file.write_text(json.dumps({
         "approved": True,
-        "approved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "source": "chase ray approve",
+        "approved_at": now,
+        "source": source,
     }, indent=2) + "\n", encoding="utf-8")
 
-    state.save_queue(config)
-    print_green(f"已审批项目 '{name}'，下一轮将执行 chase run")
-    return 0
+
+def _project_max_risk(project: Project) -> str:
+    contracts = _project_contracts(project)
+    if not contracts:
+        return "unknown"
+    risks = [estimate_contract_risk(contract) for contract in contracts]
+    if "high" in risks:
+        return "high"
+    if "medium" in risks:
+        return "medium"
+    return "low"
+
+
+def _project_contracts(project: Project) -> list[dict]:
+    sprints_dir = Path(project.path).expanduser().resolve() / ".chase" / "sprints"
+    if not sprints_dir.is_dir():
+        return []
+    contracts = []
+    for path in sorted(sprints_dir.glob("*-contract.md")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            data = {}
+        if isinstance(data, dict):
+            contracts.append(data)
+    return contracts
 
 
 def cmd_status(args) -> int:
@@ -193,15 +262,15 @@ def cmd_status(args) -> int:
     print()
 
     # 表格头
-    print(f"  {'名称':<20} {'优先级':<8} {'状态':<18} {'审批':<8} {'依赖'}")
-    print(f"  {'----':<20} {'------':<8} {'----':<18} {'----':<8} {'----'}")
+    print(f"  {'名称':<20} {'优先级':<8} {'状态':<18} {'审批':<8} {'依赖':<16} {'Last Event'}")
+    print(f"  {'----':<20} {'------':<8} {'----':<18} {'----':<8} {'----':<16} {'----------'}")
 
     for p in config.projects:
         deps = ",".join(p.depends_on) if p.depends_on else "-"
         color_fn = _STATUS_COLORS.get(p.status, lambda s: s)
         status_str = color_fn(p.status)
         approved = "yes" if p.approved else "no"
-        print(f"  {p.name:<20} {p.priority:<8} {status_str:<26} {approved:<8} {deps}")
+        print(f"  {p.name:<20} {p.priority:<8} {status_str:<26} {approved:<8} {deps:<16} {_last_event(p)}")
 
     print()
 
@@ -226,6 +295,59 @@ def cmd_sync(args) -> int:
     sync_config(config)
     state.save_queue(config)
     print_green("Ray 状态已同步")
+    return 0
+
+
+def cmd_log(args) -> int:
+    """显示某项目的 Ray 审计时间线。"""
+    state = _state(args)
+    config = state.load_queue()
+    project = _find_project(config, args.name)
+    if not project:
+        print_red(f"项目 '{args.name}' 不存在")
+        return 1
+
+    events = _audit_events(project)
+    if not events:
+        print_yellow("No audit data recorded")
+        return 0
+
+    for name, timestamp in events:
+        print(f"{name} - {timestamp}")
+    return 0
+
+
+def cmd_inspect(args) -> int:
+    """查看项目 plan preview 和 verification cards。"""
+    state = _state(args)
+    config = state.load_queue()
+    project = _find_project(config, args.name)
+    if not project:
+        print_red(f"项目 '{args.name}' 不存在")
+        return 1
+
+    workspace = Path(project.path).expanduser().resolve()
+    sprint_filter = getattr(args, "sprint", None)
+    if sprint_filter is not None:
+        card = workspace / ".chase" / "sprints" / f"{int(sprint_filter):02d}-verification.md"
+        if not card.exists():
+            print_red(f"Sprint {sprint_filter} verification card not found")
+            return 1
+        print(_format_markdown(card.read_text(encoding="utf-8")))
+        return 0
+
+    plan = workspace / ".chase" / "plan-preview.md"
+    if plan.exists():
+        print(_format_markdown(plan.read_text(encoding="utf-8")))
+    else:
+        print_yellow("No plan preview found")
+
+    sprints_dir = workspace / ".chase" / "sprints"
+    cards = sorted(sprints_dir.glob("*-verification.md")) if sprints_dir.is_dir() else []
+    for card in cards:
+        sid = card.name.split("-")[0].lstrip("0") or "0"
+        print(bold(f"--- Sprint {sid} ---"))
+        print(_format_markdown(card.read_text(encoding="utf-8")))
     return 0
 
 
@@ -411,9 +533,19 @@ def register_parser(sub) -> None:
     # sync
     ray_sub.add_parser("sync", help="同步队列与各项目 .chase 状态")
 
+    # log
+    p = ray_sub.add_parser("log", help="显示项目审计时间线")
+    p.add_argument("name", help="项目名称")
+
+    # inspect
+    p = ray_sub.add_parser("inspect", help="查看项目计划和验收证据")
+    p.add_argument("name", help="项目名称")
+    p.add_argument("--sprint", type=int, default=None, help="只查看指定 sprint 的验证卡")
+
     # approve
     p = ray_sub.add_parser("approve", help="审批某项目，允许执行 chase run")
-    p.add_argument("name", help="项目名称")
+    p.add_argument("name", nargs="?", help="项目名称")
+    p.add_argument("--all-low-risk", action="store_true", help="自动审批所有低风险 waiting_approval 项目")
 
     # pause
     p = ray_sub.add_parser("pause", help="暂停某项目")
@@ -451,6 +583,8 @@ _DISPATCH = {
     "approve": cmd_approve,
     "status": cmd_status,
     "sync": cmd_sync,
+    "log": cmd_log,
+    "inspect": cmd_inspect,
     "pause": cmd_pause,
     "resume": cmd_resume,
     "priority": cmd_priority,
@@ -476,8 +610,10 @@ def handle_ray(args) -> int:
         print("  dispatch <path>   动态派发新项目")
         print("  sync              同步队列与各项目 .chase 状态")
         print("  approve <name>    审批项目，允许执行 chase run")
+        print("  inspect <name>    查看项目计划和验收证据")
         print("  status            查看项目状态汇总")
         print("  pause <name>      暂停某项目")
+        print("  log <name>        显示项目审计时间线")
         print("  resume <name>     恢复某项目")
         print("  priority <name> <N>  调整优先级")
         print("  stop              优雅停机")
@@ -492,3 +628,49 @@ def handle_ray(args) -> int:
         return 1
 
     return handler(args)
+
+
+_AUDIT_FIELDS = (
+    ("planned", "planned_at"),
+    ("approved", "approved_at"),
+    ("run", "run_at"),
+    ("completed", "completed_at"),
+    ("needs_review", "needs_review_at"),
+)
+
+
+def _audit_events(project: Project) -> list[tuple[str, str]]:
+    events = []
+    for name, field in _AUDIT_FIELDS:
+        value = getattr(project, field, None)
+        if value:
+            events.append((name, value))
+    events.sort(key=lambda item: item[1])
+    return events
+
+
+def _last_event(project: Project) -> str:
+    events = _audit_events(project)
+    if not events:
+        return "-"
+    name, timestamp = events[-1]
+    return f"{name} {timestamp}"
+
+
+def _format_markdown(text: str) -> str:
+    lines = []
+    for line in text.splitlines():
+        if line.startswith("#"):
+            lines.append(bold(line))
+        elif line.startswith("Verdict:"):
+            lines.append(_format_verdict(line))
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _format_verdict(line: str) -> str:
+    for verdict, color in (("PASS", green), ("FAIL", red), ("ERROR", red)):
+        if verdict in line:
+            return line.replace(verdict, color(verdict), 1)
+    return line

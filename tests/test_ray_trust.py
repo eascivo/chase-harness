@@ -136,6 +136,7 @@ def test_sync_reads_manual_chase_approval(tmp_path):
     project = config.projects[0]
     assert project.approved is True
     assert project.status == STATUS_PENDING
+    assert project.approved_at is not None
 
 
 def test_sync_moves_plan_preview_to_waiting_approval(tmp_path):
@@ -150,6 +151,7 @@ def test_sync_moves_plan_preview_to_waiting_approval(tmp_path):
     sync_config(config)
 
     assert config.projects[0].status == STATUS_WAITING_APPROVAL
+    assert config.projects[0].planned_at is not None
 
 
 def test_sync_marks_all_passed_evals_completed(tmp_path):
@@ -167,6 +169,7 @@ def test_sync_marks_all_passed_evals_completed(tmp_path):
     project = config.projects[0]
     assert project.status == STATUS_COMPLETED
     assert project.approved is True
+    assert project.completed_at is not None
 
 
 def test_sync_marks_failed_evals_needs_review(tmp_path):
@@ -184,6 +187,7 @@ def test_sync_marks_failed_evals_needs_review(tmp_path):
     project = config.projects[0]
     assert project.status == STATUS_NEEDS_REVIEW
     assert project.approved is True
+    assert project.needs_review_at is not None
 
 
 def test_sync_does_not_override_active_projects(tmp_path):
@@ -200,6 +204,7 @@ def test_sync_does_not_override_active_projects(tmp_path):
 
     assert config.projects[0].status == STATUS_RUNNING
     assert config.projects[0].approved is False
+    assert config.projects[0].run_at is not None
     assert config.projects[1].status == STATUS_PLANNING
     assert config.projects[1].approved is False
 

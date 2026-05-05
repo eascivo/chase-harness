@@ -77,6 +77,7 @@ chase ray start
 Unapproved projects run `chase plan` first and then move to `waiting_approval`. Review each project's `.chase/plan-preview.md`, approve it, and start Ray again:
 
 ```bash
+chase ray inspect api
 chase ray approve api
 chase ray start
 ```
@@ -90,6 +91,15 @@ chase ray sync
 ```
 
 If a project is completed outside Ray, sync updates it to `completed` when all sprint evals pass, or `needs_review` when any sprint eval is `FAIL` or `ERROR`. `needs_review` means Chase ran and found acceptance issues; `failed` is reserved for process or environment failures.
+
+Useful review commands:
+
+```bash
+chase ray inspect api              # show plan preview and verification cards
+chase ray inspect api --sprint 2   # show one sprint verification card
+chase ray log api                  # show project audit timeline
+chase ray approve --all-low-risk   # approve only projects whose contracts are all low risk
+```
 
 ## Uninstall
 
