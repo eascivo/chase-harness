@@ -79,7 +79,7 @@ def render_plan_preview(contracts: list[dict[str, Any]]) -> str:
     ]
 
     for contract in contracts:
-        sid = contract.get("id", "?")
+        sid = contract.get("id", contract.get("sprint_id", "?"))
         title = contract.get("title", "Untitled sprint")
         risk = estimate_contract_risk(contract)
         description = contract.get("description", "")

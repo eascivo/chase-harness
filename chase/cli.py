@@ -6,6 +6,7 @@ import argparse
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from chase.config import ChaseConfig
@@ -15,6 +16,7 @@ from chase.logging import ChaseLogger
 from chase.orchestrator import Orchestrator
 from chase.ray.cli import handle_ray, register_parser as register_ray
 from chase.state import StateDir
+from chase.trust import render_plan_preview
 
 
 def resolve_workspace(arg: str | None) -> Path:
@@ -137,6 +139,50 @@ def cmd_run(args) -> int:
     return orch.run()
 
 
+def cmd_plan(args) -> int:
+    ws = resolve_workspace(args.workspace)
+    state = StateDir.for_workspace(ws)
+    state.init_directories()
+
+    if not state.mission_file.exists():
+        print_red("MISSION.md not found. Create it first.")
+        return 1
+
+    config = ChaseConfig.from_env(ws)
+    contracts = state.existing_contracts()
+    if not contracts:
+        orch = Orchestrator(config, state)
+        orch.preflight()
+        result = orch.planner.run(orch.cost, orch.logger)
+        if not result.success:
+            print_red("Planner failed.")
+            return 1
+        contracts = state.existing_contracts()
+        for contract_path in contracts:
+            sid = int(contract_path.stem.split("-")[0])
+            orch.negotiator.run(sid, orch.cost, orch.logger)
+
+    contract_data = [_read_preview_contract(state, path) for path in contracts]
+    preview = render_plan_preview(contract_data)
+    state.plan_preview_file.write_text(preview, encoding="utf-8")
+    print(preview)
+    print_green(f"Plan preview written to {state.plan_preview_file}")
+    return 0
+
+
+def cmd_approve(args) -> int:
+    ws = resolve_workspace(args.workspace)
+    state = StateDir.for_workspace(ws)
+    state.init_directories()
+    payload = {
+        "approved": True,
+        "approved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    state.approval_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    print_green("Plan approved. `chase run` may now execute code changes.")
+    return 0
+
+
 def cmd_status(args) -> int:
     ws = resolve_workspace(args.workspace)
     state = StateDir.for_workspace(ws)
@@ -215,6 +261,13 @@ def cmd_status(args) -> int:
     return 0
 
 
+def _read_preview_contract(state: StateDir, contract_path: Path) -> dict:
+    sid = int(contract_path.stem.split("-")[0])
+    negotiated_path = state.sprint_negotiated(sid)
+    active_path = negotiated_path if negotiated_path.exists() else contract_path
+    return json.loads(active_path.read_text(encoding="utf-8"))
+
+
 def cmd_reset(args) -> int:
     ws = resolve_workspace(args.workspace)
     state = StateDir.for_workspace(ws)
@@ -247,7 +300,7 @@ def main() -> int:
     )
     sub = parser.add_subparsers(dest="command")
 
-    for name in ("init", "run", "resume", "status", "reset"):
+    for name in ("init", "plan", "approve", "run", "resume", "status", "reset"):
         p = sub.add_parser(name)
         p.add_argument("--workspace", default=None)
 
@@ -258,6 +311,8 @@ def main() -> int:
 
     dispatch = {
         "init": cmd_init,
+        "plan": cmd_plan,
+        "approve": cmd_approve,
         "run": cmd_run,
         "resume": cmd_run,
         "status": cmd_status,
