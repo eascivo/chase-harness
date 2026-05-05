@@ -8,7 +8,9 @@ from chase.ray.config import (
     STATUS_FAILED,
     STATUS_PAUSED,
     STATUS_PENDING,
+    STATUS_PLANNING,
     STATUS_RUNNING,
+    STATUS_WAITING_APPROVAL,
     Project,
     RayConfig,
 )
@@ -29,7 +31,7 @@ class Scheduler:
         }
 
     def _running_count(self) -> int:
-        return sum(1 for p in self.config.projects if p.status == STATUS_RUNNING)
+        return sum(1 for p in self.config.projects if p.status in (STATUS_RUNNING, STATUS_PLANNING))
 
     def _deps_met(self, project: Project, completed: set[str]) -> bool:
         """检查项目依赖是否全部满足。"""

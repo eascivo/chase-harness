@@ -13,7 +13,9 @@ from chase.ray.config import (
     STATUS_FAILED,
     STATUS_PAUSED,
     STATUS_PENDING,
+    STATUS_PLANNING,
     STATUS_RUNNING,
+    STATUS_WAITING_APPROVAL,
     Project,
     RayConfig,
     RayStateDir,
@@ -27,10 +29,11 @@ POLL_INTERVAL = 5
 class ProcessSlot:
     """一个正在运行的 chase 子进程。"""
 
-    def __init__(self, project: Project, proc: subprocess.Popen, log_file: Path):
+    def __init__(self, project: Project, proc: subprocess.Popen, log_file, target_status: str):
         self.project = project
         self.proc = proc
         self.log_file = log_file
+        self.target_status = target_status
         self.started_at = datetime.now()
 
     @property
@@ -58,7 +61,7 @@ class Monitor:
         return self._stop_requested
 
     def start_project(self, project: Project) -> bool:
-        """为项目启动 chase run 子进程。"""
+        """为项目启动 chase plan 或 chase run 子进程。"""
         if project.name in self.slots:
             self.logger.error(f"项目 '{project.name}' 已在运行")
             return False
@@ -80,7 +83,14 @@ class Monitor:
             return False
 
         try:
-            cmd = ["chase", "run", "--workspace", str(workspace)]
+            if project.approved:
+                cmd = ["chase", "run", "--workspace", str(workspace)]
+                project.status = STATUS_RUNNING
+                target_status = STATUS_COMPLETED
+            else:
+                cmd = ["chase", "plan", "--workspace", str(workspace)]
+                project.status = STATUS_PLANNING
+                target_status = STATUS_WAITING_APPROVAL
             proc = subprocess.Popen(
                 cmd,
                 stdout=log_fh,
@@ -93,10 +103,9 @@ class Monitor:
             project.status = STATUS_FAILED
             return False
 
-        project.status = STATUS_RUNNING
-        self.slots[project.name] = ProcessSlot(project, proc, log_file)
+        self.slots[project.name] = ProcessSlot(project, proc, log_fh, target_status)
         self.logger.info(
-            f"启动项目 '{project.name}' (pid={proc.pid}, workspace={workspace})"
+            f"启动项目 '{project.name}' (pid={proc.pid}, cmd={' '.join(cmd)}, workspace={workspace})"
         )
         return True
 
@@ -118,7 +127,7 @@ class Monitor:
                 pass
 
             if retcode == 0:
-                slot.project.status = STATUS_COMPLETED
+                slot.project.status = slot.target_status
                 self.logger.info(f"项目 '{name}' 已完成")
             else:
                 slot.project.status = STATUS_FAILED

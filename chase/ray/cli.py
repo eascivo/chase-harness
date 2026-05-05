@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from chase.fmt import bold, green, print_bold, print_green, print_red, print_yellow
@@ -14,7 +16,9 @@ from chase.ray.config import (
     STATUS_FAILED,
     STATUS_PAUSED,
     STATUS_PENDING,
+    STATUS_PLANNING,
     STATUS_RUNNING,
+    STATUS_WAITING_APPROVAL,
     Project,
     RayStateDir,
 )
@@ -34,6 +38,8 @@ def _logger(state: RayStateDir) -> ChaseLogger:
 # 状态 → 显示颜色
 _STATUS_COLORS = {
     STATUS_PENDING: lambda s: s,
+    STATUS_PLANNING: lambda s: f"\033[36m{s}\033[0m",
+    STATUS_WAITING_APPROVAL: lambda s: f"\033[33m{s}\033[0m",
     STATUS_RUNNING: lambda s: green(s),
     STATUS_COMPLETED: lambda s: green(s),
     STATUS_FAILED: lambda s: f"\033[31m{s}\033[0m",
@@ -126,6 +132,36 @@ def cmd_dispatch(args) -> int:
     return 0
 
 
+def cmd_approve(args) -> int:
+    """审批某项目，允许 Ray 下一轮执行 chase run。"""
+    state = _state(args)
+    config = state.load_queue()
+
+    name = args.name
+    project = _find_project(config, name)
+    if not project:
+        print_red(f"项目 '{name}' 不存在")
+        return 1
+
+    project.approved = True
+    if project.status == STATUS_WAITING_APPROVAL:
+        project.status = STATUS_PENDING
+
+    workspace = Path(project.path).expanduser().resolve()
+    chase_dir = workspace / ".chase"
+    chase_dir.mkdir(parents=True, exist_ok=True)
+    approval_file = chase_dir / "approved.json"
+    approval_file.write_text(json.dumps({
+        "approved": True,
+        "approved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": "chase ray approve",
+    }, indent=2) + "\n", encoding="utf-8")
+
+    state.save_queue(config)
+    print_green(f"已审批项目 '{name}'，下一轮将执行 chase run")
+    return 0
+
+
 def cmd_status(args) -> int:
     """显示所有项目状态汇总。"""
     state = _state(args)
@@ -150,14 +186,15 @@ def cmd_status(args) -> int:
     print()
 
     # 表格头
-    print(f"  {'名称':<20} {'优先级':<8} {'状态':<12} {'依赖'}")
-    print(f"  {'----':<20} {'------':<8} {'----':<12} {'----'}")
+    print(f"  {'名称':<20} {'优先级':<8} {'状态':<18} {'审批':<8} {'依赖'}")
+    print(f"  {'----':<20} {'------':<8} {'----':<18} {'----':<8} {'----'}")
 
     for p in config.projects:
         deps = ",".join(p.depends_on) if p.depends_on else "-"
         color_fn = _STATUS_COLORS.get(p.status, lambda s: s)
         status_str = color_fn(p.status)
-        print(f"  {p.name:<20} {p.priority:<8} {status_str:<20} {deps}")
+        approved = "yes" if p.approved else "no"
+        print(f"  {p.name:<20} {p.priority:<8} {status_str:<26} {approved:<8} {deps}")
 
     print()
 
@@ -350,6 +387,10 @@ def register_parser(sub) -> None:
     # status
     ray_sub.add_parser("status", help="查看所有项目状态汇总")
 
+    # approve
+    p = ray_sub.add_parser("approve", help="审批某项目，允许执行 chase run")
+    p.add_argument("name", help="项目名称")
+
     # pause
     p = ray_sub.add_parser("pause", help="暂停某项目")
     p.add_argument("name", help="项目名称")
@@ -383,6 +424,7 @@ _DISPATCH = {
     "init": cmd_init,
     "start": cmd_start,
     "dispatch": cmd_dispatch,
+    "approve": cmd_approve,
     "status": cmd_status,
     "pause": cmd_pause,
     "resume": cmd_resume,
@@ -407,6 +449,7 @@ def handle_ray(args) -> int:
         print("  init              初始化 Ray 编排环境")
         print("  start [--daemon]  启动编排循环")
         print("  dispatch <path>   动态派发新项目")
+        print("  approve <name>    审批项目，允许执行 chase run")
         print("  status            查看项目状态汇总")
         print("  pause <name>      暂停某项目")
         print("  resume <name>     恢复某项目")

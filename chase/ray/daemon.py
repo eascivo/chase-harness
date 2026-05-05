@@ -13,6 +13,7 @@ from chase.ray.config import (
     STATUS_COMPLETED,
     STATUS_FAILED,
     STATUS_PENDING,
+    STATUS_WAITING_APPROVAL,
     RayConfig,
     RayStateDir,
 )
@@ -96,7 +97,7 @@ def run_loop(state: RayStateDir, logger: ChaseLogger) -> None:
 
             # 5. 检查是否全部完成
             all_done = all(
-                p.status in (STATUS_COMPLETED, STATUS_FAILED)
+                p.status in (STATUS_COMPLETED, STATUS_FAILED, STATUS_WAITING_APPROVAL)
                 for p in config.projects
             )
             if all_done and monitor.active_count() == 0:

@@ -8,6 +8,8 @@ from pathlib import Path
 
 # 项目状态常量
 STATUS_PENDING = "pending"
+STATUS_PLANNING = "planning"
+STATUS_WAITING_APPROVAL = "waiting_approval"
 STATUS_RUNNING = "running"
 STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
@@ -24,6 +26,7 @@ class Project:
     priority: int = 0
     depends_on: list[str] = field(default_factory=list)
     status: str = STATUS_PENDING
+    approved: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -32,6 +35,7 @@ class Project:
             "priority": self.priority,
             "depends_on": list(self.depends_on),
             "status": self.status,
+            "approved": self.approved,
         }
 
     @classmethod
@@ -42,6 +46,7 @@ class Project:
             priority=d.get("priority", 0),
             depends_on=d.get("depends_on", []),
             status=d.get("status", STATUS_PENDING),
+            approved=d.get("approved", False),
         )
 
 

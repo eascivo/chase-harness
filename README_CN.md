@@ -63,6 +63,26 @@ chase run
 CHASE_REQUIRE_APPROVAL=0 chase run
 ```
 
+## Ray 多项目模式
+
+Ray 用来按优先级、依赖关系和并发数编排多个 Chase 工作区。它现在复用单项目 Chase 的信任工作流：
+
+```bash
+chase ray init
+chase ray dispatch api /path/to/api --priority 0
+chase ray dispatch web /path/to/web --priority 1 --depends-on api
+chase ray start
+```
+
+未审批项目会先运行 `chase plan`，然后进入 `waiting_approval`。查看每个项目的 `.chase/plan-preview.md` 后，逐个审批并再次启动 Ray：
+
+```bash
+chase ray approve api
+chase ray start
+```
+
+已审批项目会运行 `chase run`。Ray 会保留普通 Chase 的 sprint 证据文件，包括 `.chase/sprints/NN-verification.md`。
+
 ## 卸载
 
 ```bash
@@ -80,6 +100,7 @@ rm /usr/local/bin/chase
 | `chase resume` | `run` 的别名 |
 | `chase status` | 显示 sprint 进度、评分和成本 |
 | `chase reset` | 清理 sprints/handoffs/logs，重新规划 |
+| `chase ray ...` | 以先计划、后审批的方式编排多个 Chase 项目 |
 
 ## 配置
 

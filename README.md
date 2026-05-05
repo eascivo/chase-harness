@@ -63,6 +63,26 @@ For fully automatic runs, explicitly disable approval:
 CHASE_REQUIRE_APPROVAL=0 chase run
 ```
 
+## Ray Multi-Project Mode
+
+Ray coordinates multiple Chase workspaces with priorities, dependencies, and concurrency. It follows the same trust workflow as single-project Chase:
+
+```bash
+chase ray init
+chase ray dispatch api /path/to/api --priority 0
+chase ray dispatch web /path/to/web --priority 1 --depends-on api
+chase ray start
+```
+
+Unapproved projects run `chase plan` first and then move to `waiting_approval`. Review each project's `.chase/plan-preview.md`, approve it, and start Ray again:
+
+```bash
+chase ray approve api
+chase ray start
+```
+
+Approved projects run `chase run`. Ray writes the same sprint evidence files as normal Chase, including `.chase/sprints/NN-verification.md`.
+
 ## Uninstall
 
 ```bash
@@ -80,6 +100,7 @@ rm /usr/local/bin/chase
 | `chase resume` | Alias for `run` |
 | `chase status` | Show sprint progress, scores, and cost |
 | `chase reset` | Clean sprints/handoffs/logs to re-plan |
+| `chase ray ...` | Coordinate multiple Chase projects with plan-first approval |
 
 ## Configuration
 
