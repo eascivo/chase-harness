@@ -44,6 +44,19 @@ chase run        # 启动自主循环
 chase status     # 随时查看进度
 ```
 
+## 信任工作流
+
+如果你希望 Chase 在改代码前必须经过确认，可以启用审批门禁：
+
+```bash
+CHASE_REQUIRE_APPROVAL=1 chase plan
+# 查看 .chase/plan-preview.md
+chase approve
+chase run
+```
+
+`chase plan` 只生成 sprint 合约和可读预览，不会运行 Generator。每个 sprint 验收后，Chase 会写入 `.chase/sprints/NN-verification.md`，包含验收条件、证据、测试输出、分数、结论和失败原因。
+
 ## 卸载
 
 ```bash
@@ -55,6 +68,8 @@ rm /usr/local/bin/chase
 | 命令 | 说明 |
 |------|------|
 | `chase init` | 创建 MISSION.md 模板和 `.chase/` 目录 |
+| `chase plan` | 生成 sprint 计划预览，不改代码 |
+| `chase approve` | 审批当前计划，允许 `chase run` 修改代码 |
 | `chase run` | 启动四 Agent 循环（自动从断点恢复） |
 | `chase resume` | `run` 的别名 |
 | `chase status` | 显示 sprint 进度、评分和成本 |
@@ -100,6 +115,7 @@ rm /usr/local/bin/chase
 | `CHASE_MAX_RETRIES` | `3` | 每 sprint 最大重试次数 |
 | `CHASE_EVAL_THRESHOLD` | `0.7` | 通过分数阈值（0-1） |
 | `CHASE_STALE_LIMIT` | `3` | 连续无进展停止阈值 |
+| `CHASE_REQUIRE_APPROVAL` | `""` | 设为 `1` 后，Generator 改代码前必须先 `chase approve` |
 
 ### UI 测试
 

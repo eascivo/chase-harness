@@ -44,6 +44,19 @@ chase run        # start the autonomous loop
 chase status     # check progress anytime
 ```
 
+## Trust Workflow
+
+For safer autonomous runs, enable approval gating:
+
+```bash
+CHASE_REQUIRE_APPROVAL=1 chase plan
+# review .chase/plan-preview.md
+chase approve
+chase run
+```
+
+`chase plan` generates sprint contracts and a human-readable preview without running Generator. After each evaluated sprint, Chase writes `.chase/sprints/NN-verification.md` with the criteria, evidence, test output, score, verdict, and failure reason.
+
 ## Uninstall
 
 ```bash
@@ -55,6 +68,8 @@ rm /usr/local/bin/chase
 | Command | Description |
 |---------|-------------|
 | `chase init` | Create MISSION.md template and `.chase/` directory |
+| `chase plan` | Generate sprint plan preview without code changes |
+| `chase approve` | Approve the current plan so `chase run` can modify code |
 | `chase run` | Start the full agent loop (auto-resumes from checkpoint) |
 | `chase resume` | Alias for `run` |
 | `chase status` | Show sprint progress, scores, and cost |
@@ -100,6 +115,7 @@ Each agent can use a different provider — e.g., GPT for planning, Claude for c
 | `CHASE_MAX_RETRIES` | `3` | Max retries per sprint |
 | `CHASE_EVAL_THRESHOLD` | `0.7` | Pass score threshold (0-1) |
 | `CHASE_STALE_LIMIT` | `3` | Consecutive no-progress limit |
+| `CHASE_REQUIRE_APPROVAL` | `""` | Set to `1` to require `chase approve` before Generator modifies code |
 
 ### UI Testing
 
