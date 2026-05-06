@@ -49,16 +49,10 @@ def sync_project(project: Project) -> None:
         verdicts = [_read_verdict(path) for path in evals]
         if verdicts and all(verdict == "PASS" for verdict in verdicts):
             project.status = STATUS_COMPLETED
-            if not project.approved:
-                _stamp(project, "approved_at")
-            project.approved = True
             _stamp(project, "completed_at")
             return
         if any(verdict in {"FAIL", "ERROR"} for verdict in verdicts):
             project.status = STATUS_NEEDS_REVIEW
-            if not project.approved:
-                _stamp(project, "approved_at")
-            project.approved = True
             _stamp(project, "needs_review_at")
             return
 

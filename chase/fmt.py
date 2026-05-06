@@ -24,6 +24,10 @@ def yellow(text: str) -> str:
     return _wrap("33", text)
 
 
+def cyan(text: str) -> str:
+    return _wrap("36", text)
+
+
 def bold(text: str) -> str:
     return _wrap("1", text)
 

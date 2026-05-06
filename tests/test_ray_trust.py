@@ -168,7 +168,7 @@ def test_sync_marks_all_passed_evals_completed(tmp_path):
 
     project = config.projects[0]
     assert project.status == STATUS_COMPLETED
-    assert project.approved is True
+    assert project.approved is False
     assert project.completed_at is not None
 
 
@@ -186,7 +186,7 @@ def test_sync_marks_failed_evals_needs_review(tmp_path):
 
     project = config.projects[0]
     assert project.status == STATUS_NEEDS_REVIEW
-    assert project.approved is True
+    assert project.approved is False
     assert project.needs_review_at is not None
 
 

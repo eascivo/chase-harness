@@ -1,6 +1,6 @@
 from typing import Optional
 
-from chase.fmt import bold, green
+from chase.fmt import green
 from chase.ray.cli import cmd_inspect
 from chase.ray.config import Project, RayConfig, RayStateDir
 
@@ -25,7 +25,7 @@ def test_inspect_shows_plan_preview(tmp_path, capsys):
     out = capsys.readouterr().out
 
     assert exit_code == 0
-    assert bold("# Chase Plan Preview") in out
+    assert "# Chase Plan Preview" in out
 
 
 def test_inspect_shows_verification_cards(tmp_path, capsys):

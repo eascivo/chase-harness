@@ -25,7 +25,7 @@ MISSION.md（你的目标）
 │  Evaluator                              │
 │  按协商后的清单独立验收                   │
 │  → sprints/01-eval.json                 │
-│  分数 < 0.7？→ 重试（最多 3 次）          │
+│  分数 < 0.7？→ 重试（最多 10 次）         │
 └─────────────────────────────────────────┘
 ```
 
@@ -65,7 +65,7 @@ CHASE_REQUIRE_APPROVAL=0 chase run
 
 ## Ray 多项目模式
 
-Ray 用来按优先级、依赖关系和并发数编排多个 Chase 工作区。它现在复用单项目 Chase 的信任工作流：
+Ray 用来按优先级、依赖关系和并发数编排多个 Chase 工作区。它复用单项目 Chase 的信任工作流：
 
 ```bash
 chase ray init
@@ -99,6 +99,10 @@ chase ray inspect api              # 查看计划预览和验收卡
 chase ray inspect api --sprint 2   # 只查看某个 sprint 的验收卡
 chase ray log api                  # 查看项目审计时间线
 chase ray approve --all-low-risk   # 只自动审批全部 sprint 均为低风险的项目
+chase ray pause api                # 暂停运行中的项目
+chase ray resume api               # 恢复暂停的项目
+chase ray priority api 1           # 调整项目优先级
+chase ray remove api               # 从队列移除项目
 ```
 
 ## 卸载
@@ -118,7 +122,19 @@ rm /usr/local/bin/chase
 | `chase resume` | `run` 的别名 |
 | `chase status` | 显示 sprint 进度、评分和成本 |
 | `chase reset` | 清理 sprints/handoffs/logs，重新规划 |
-| `chase ray ...` | 以先计划、后审批的方式编排多个 Chase 项目 |
+| `chase ray init` | 初始化 Ray 多项目工作区 |
+| `chase ray start` | 启动 Ray 编排循环 |
+| `chase ray dispatch` | 向 Ray 队列添加项目 |
+| `chase ray approve` | 审批项目，允许执行 |
+| `chase ray status` | 显示所有 Ray 项目状态 |
+| `chase ray inspect` | 查看项目计划和验收证据 |
+| `chase ray log` | 显示项目审计时间线 |
+| `chase ray sync` | 从项目 `.chase/` 目录同步队列状态 |
+| `chase ray pause` | 暂停运行中的项目 |
+| `chase ray resume` | 恢复暂停的项目 |
+| `chase ray priority` | 调整项目优先级 |
+| `chase ray remove` | 从队列移除项目 |
+| `chase ray stop` | 优雅停机 |
 
 ## 配置
 
@@ -157,7 +173,7 @@ rm /usr/local/bin/chase
 |------|--------|------|
 | `CHASE_COST_LIMIT` | `10000.0` | 预算上限（USD） |
 | `CHASE_MAX_SPRINTS` | `50` | 最大 sprint 数 |
-| `CHASE_MAX_RETRIES` | `3` | 每 sprint 最大重试次数 |
+| `CHASE_MAX_RETRIES` | `10` | 每 sprint 最大重试次数 |
 | `CHASE_EVAL_THRESHOLD` | `0.7` | 通过分数阈值（0-1） |
 | `CHASE_STALE_LIMIT` | `3` | 连续无进展停止阈值 |
 | `CHASE_REQUIRE_APPROVAL` | `"1"` | 默认要求审批。设为 `0`、`false`、`no` 或 `off` 后完全自动运行 |
@@ -168,6 +184,17 @@ rm /usr/local/bin/chase
 |------|--------|------|
 | `CHASE_APP_URL` | `""` | 应用 URL（Playwright） |
 | `CHASE_PLAYWRIGHT` | `""` | 设为 `1` 启用浏览器测试 |
+
+### Computer Use（CDP）
+
+零依赖浏览器自动化，通过 Chrome DevTools Protocol 实现。支持 Brave 和 Chrome。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `CHASE_COMPUTER_USE` | `""` | 设为 `1` 启用 CDP 浏览器自动化 |
+| `CHASE_CDP_PORT` | `9222` | Chrome 远程调试端口 |
+
+启用后，Evaluator 可以启动浏览器、导航页面、点击元素、输入文本、截图和执行 JavaScript——无需任何 pip 依赖。
 
 优先级：环境变量 > `.chase/.env` > 默认值
 
@@ -216,6 +243,10 @@ Generator 写代码之前，Negotiator 先把每个 sprint 合约精炼为具体
 
 设置 `CHASE_PLAYWRIGHT=1` 和 `CHASE_APP_URL=http://localhost:8000` 即可启用浏览器自动化测试。Evaluator 可以打开页面、点击按钮、填写表单、截图取证。
 
+### Computer Use（CDP）
+
+设置 `CHASE_COMPUTER_USE=1` 启用零依赖浏览器自动化，通过 Chrome DevTools Protocol 实现。Chase 会启动 Brave 或 Chrome 的远程调试模式，通过 WebSocket 连接，可以导航、点击、输入、截图和执行 JavaScript。这是 Playwright 的纯标准库替代方案——无需 pip install。
+
 ### 设计评分（Design Scoring）
 
 当 sprint 涉及前端工作时，Evaluator 会额外给出 `design_score`（0-1），评估配色一致性、间距节奏、排版层级、响应式布局等视觉质量。最终得分 = 功能分 × 70% + 设计分 × 30%。
@@ -230,6 +261,7 @@ Generator 写代码之前，Negotiator 先把每个 sprint 合约精炼为具体
 - **断点恢复** — 从上次完成的 sprint 继续
 - **多项目复用** — 一份安装服务所有项目
 - **Playwright + 设计评分** — 浏览器自动化测试 + 视觉质量评估
+- **Computer Use（CDP）** — 零依赖浏览器自动化，通过 Chrome DevTools Protocol 实现
 
 ## 依赖
 

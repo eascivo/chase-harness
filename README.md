@@ -25,7 +25,7 @@ MISSION.md (your goal)
 │  Evaluator                              │
 │  Verify against negotiated criteria     │
 │  → sprints/01-eval.json                 │
-│  Score < 0.7? → retry (up to 3×)        │
+│  Score < 0.7? → retry (up to 10×)       │
 └─────────────────────────────────────────┘
 ```
 
@@ -99,6 +99,10 @@ chase ray inspect api              # show plan preview and verification cards
 chase ray inspect api --sprint 2   # show one sprint verification card
 chase ray log api                  # show project audit timeline
 chase ray approve --all-low-risk   # approve only projects whose contracts are all low risk
+chase ray pause api                # pause a running project
+chase ray resume api               # resume a paused project
+chase ray priority api 1           # adjust project priority
+chase ray remove api               # remove project from queue
 ```
 
 ## Uninstall
@@ -118,7 +122,19 @@ rm /usr/local/bin/chase
 | `chase resume` | Alias for `run` |
 | `chase status` | Show sprint progress, scores, and cost |
 | `chase reset` | Clean sprints/handoffs/logs to re-plan |
-| `chase ray ...` | Coordinate multiple Chase projects with plan-first approval |
+| `chase ray init` | Initialize Ray multi-project workspace |
+| `chase ray start` | Start Ray orchestration loop |
+| `chase ray dispatch` | Add project to Ray queue |
+| `chase ray approve` | Approve project for execution |
+| `chase ray status` | Show all Ray projects status |
+| `chase ray inspect` | View project plan and verification cards |
+| `chase ray log` | Show project audit timeline |
+| `chase ray sync` | Sync queue state from project `.chase/` dirs |
+| `chase ray pause` | Pause a running project |
+| `chase ray resume` | Resume a paused project |
+| `chase ray priority` | Adjust project priority |
+| `chase ray remove` | Remove project from queue |
+| `chase ray stop` | Gracefully stop Ray daemon |
 
 ## Configuration
 
@@ -157,7 +173,7 @@ Each agent can use a different provider — e.g., GPT for planning, Claude for c
 |----------|---------|-------------|
 | `CHASE_COST_LIMIT` | `10000.0` | Budget limit in USD |
 | `CHASE_MAX_SPRINTS` | `50` | Maximum number of sprints |
-| `CHASE_MAX_RETRIES` | `3` | Max retries per sprint |
+| `CHASE_MAX_RETRIES` | `10` | Max retries per sprint |
 | `CHASE_EVAL_THRESHOLD` | `0.7` | Pass score threshold (0-1) |
 | `CHASE_STALE_LIMIT` | `3` | Consecutive no-progress limit |
 | `CHASE_REQUIRE_APPROVAL` | `"1"` | Approval is required by default. Set to `0`, `false`, `no`, or `off` for fully automatic runs |
@@ -168,6 +184,17 @@ Each agent can use a different provider — e.g., GPT for planning, Claude for c
 |----------|---------|-------------|
 | `CHASE_APP_URL` | `""` | App URL for Playwright UI testing |
 | `CHASE_PLAYWRIGHT` | `""` | Set to `1` to enable browser testing |
+
+### Computer Use (CDP)
+
+Zero-dependency browser automation via Chrome DevTools Protocol. Works with Brave or Chrome.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHASE_COMPUTER_USE` | `""` | Set to `1` to enable CDP browser automation |
+| `CHASE_CDP_PORT` | `9222` | Chrome remote debugging port |
+
+When enabled, the Evaluator can launch a browser, navigate pages, click elements, type text, take screenshots, and run JavaScript — all without any pip dependencies.
 
 Priority: environment variables > `.chase/.env` > defaults
 
@@ -218,6 +245,10 @@ Before the Generator writes any code, the Negotiator refines each sprint contrac
 
 Set `CHASE_PLAYWRIGHT=1` and `CHASE_APP_URL=http://localhost:8000` to enable browser-based testing. The Evaluator can navigate pages, click buttons, fill forms, and take screenshots as evidence.
 
+### Computer Use (CDP)
+
+Set `CHASE_COMPUTER_USE=1` to enable zero-dependency browser automation via Chrome DevTools Protocol. Chase will launch Brave or Chrome with remote debugging, connect via WebSocket, and can navigate, click, type, screenshot, and evaluate JavaScript. This is a pure-stdlib alternative to Playwright — no pip install required.
+
 ### Design Scoring
 
 When a sprint involves frontend work, the Evaluator adds a `design_score` (0-1) evaluating visual quality: color consistency, spacing rhythm, typography hierarchy, responsiveness, and polish. Final score = functional × 70% + design × 30%.
@@ -232,6 +263,7 @@ When a sprint involves frontend work, the Evaluator adds a `design_score` (0-1) 
 - **Resume from interruption** — picks up from the last completed sprint
 - **Multi-project** — one installation serves all your projects
 - **Playwright + design scoring** — browser-based UI testing with visual quality evaluation
+- **Computer Use (CDP)** — zero-dependency browser automation via Chrome DevTools Protocol
 
 ## Requirements
 

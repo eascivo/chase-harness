@@ -3,6 +3,10 @@ sprints/
 handoffs/
 logs/
 
+# Chase harness metadata
+.claude-task.md
+.claude-review.md
+
 # OS
 .DS_Store
 __pycache__/

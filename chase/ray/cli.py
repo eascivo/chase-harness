@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from chase.fmt import bold, green, red, yellow, print_bold, print_green, print_red, print_yellow
+from chase.fmt import bold, cyan, green, red, yellow, print_bold, print_green, print_red, print_yellow
+from chase.subprocess import extract_json_from_text
 from chase.logging import ChaseLogger
 from chase.ray.config import (
     STATUS_BLOCKED,
@@ -27,6 +29,8 @@ from chase.ray.daemon import daemonize, generate_launchd_template, run_loop
 from chase.ray.sync import sync_config
 from chase.trust import estimate_contract_risk
 
+logger = logging.getLogger(__name__)
+
 
 def _state(args=None) -> RayStateDir:
     cwd = getattr(args, "cwd", None) if args else None
@@ -41,14 +45,14 @@ def _logger(state: RayStateDir) -> ChaseLogger:
 # 状态 → 显示颜色
 _STATUS_COLORS = {
     STATUS_PENDING: lambda s: s,
-    STATUS_PLANNING: lambda s: f"\033[36m{s}\033[0m",
-    STATUS_WAITING_APPROVAL: lambda s: f"\033[33m{s}\033[0m",
+    STATUS_PLANNING: lambda s: cyan(s),
+    STATUS_WAITING_APPROVAL: lambda s: yellow(s),
     STATUS_RUNNING: lambda s: green(s),
     STATUS_COMPLETED: lambda s: green(s),
-    STATUS_NEEDS_REVIEW: lambda s: f"\033[33m{s}\033[0m",
-    STATUS_FAILED: lambda s: f"\033[31m{s}\033[0m",
-    STATUS_PAUSED: lambda s: f"\033[33m{s}\033[0m",
-    STATUS_BLOCKED: lambda s: f"\033[33m{s}\033[0m",
+    STATUS_NEEDS_REVIEW: lambda s: yellow(s),
+    STATUS_FAILED: lambda s: red(s),
+    STATUS_PAUSED: lambda s: yellow(s),
+    STATUS_BLOCKED: lambda s: yellow(s),
 }
 
 
@@ -227,10 +231,13 @@ def _project_contracts(project: Project) -> list[dict]:
         return []
     contracts = []
     for path in sorted(sprints_dir.glob("*-contract.md")):
+        content = path.read_text(encoding="utf-8")
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(content)
         except (json.JSONDecodeError, OSError):
-            data = {}
+            data = extract_json_from_text(content)
+            if data is not None:
+                logger.warning("Direct JSON parse failed for %s, extract_json_from_text succeeded", path.name)
         if isinstance(data, dict):
             contracts.append(data)
     return contracts
@@ -245,8 +252,6 @@ def cmd_status(args) -> int:
         return 1
 
     config = state.load_queue()
-    sync_config(config)
-    state.save_queue(config)
 
     if not config.projects:
         print("队列为空")
