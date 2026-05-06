@@ -67,6 +67,17 @@ class StateDir:
     def sprint_verification_card(self, sprint_id: int) -> Path:
         return self.sprints / f"{sprint_id:02d}-verification.md"
 
+    def sprint_skip(self, sprint_id: int) -> Path:
+        return self.sprints / f"{sprint_id:02d}-skip.json"
+
+    @property
+    def current_agent_file(self) -> Path:
+        return self.root / "current-agent.json"
+
+    @property
+    def lock_file(self) -> Path:
+        return self.root / "run.lock"
+
     def existing_contracts(self) -> list[Path]:
         return sorted(self.sprints.glob("??-contract.md"))
 

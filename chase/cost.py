@@ -1,9 +1,12 @@
 """Cost tracking with JSON file persistence."""
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -23,7 +26,11 @@ class CostTracker:
         if self._file.exists():
             try:
                 return json.loads(self._file.read_text())
-            except (json.JSONDecodeError, OSError):
+            except json.JSONDecodeError:
+                bad_path = self._file.with_suffix(".json.bad")
+                self._file.rename(bad_path)
+                logger.warning(f"Cost file corrupt, renamed to {bad_path}. Starting fresh.")
+            except OSError:
                 pass
         return {"total_cost": 0.0, "sprints": []}
 

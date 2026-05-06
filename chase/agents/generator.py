@@ -91,6 +91,7 @@ Implement the sprint contract defined above. When done:
             result_path.write_text(result.result_text)
         else:
             logger.sprint(sprint_id, "generator", "Warning: empty result, skipping file write")
+            return AgentResult(success=False, cost=result.cost, raw_text=result.result_text or "", parsed_data=None)
 
         logger.sprint(sprint_id, "generator", f"Done, cost ${result.cost:.4f}")
 

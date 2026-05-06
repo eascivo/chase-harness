@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
+import sys
+from datetime import datetime, timezone
 
 from chase.agents.planner import PlannerAgent
 from chase.agents.negotiator import NegotiatorAgent
@@ -39,6 +43,13 @@ class Orchestrator:
         self._log_model_config()
         self.logger.info("=" * 40)
 
+        # Python version check
+        if sys.version_info < (3, 10):
+            ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+            self.logger.warning(
+                f"Python {ver} detected. Chase recommends 3.10+. Some features may not work."
+            )
+
         # Check CLI is installed
         cli_cmd = self.config.cli
         try:
@@ -60,8 +71,15 @@ class Orchestrator:
             raise SystemExit(1)
 
     def run(self) -> int:
-        """Main orchestration loop. Returns exit code."""
+        """Main orchestration loop. Returns exit code.
+
+        Lock is managed by the CLI layer (cmd_run). This method runs without lock logic.
+        """
         self.state.init_directories()
+        return self._run_inner()
+
+    def _run_inner(self) -> int:
+        """Main orchestration logic."""
         self.preflight()
 
         # Phase 1: Planning
@@ -86,6 +104,12 @@ class Orchestrator:
             sprint_id = self._extract_sprint_id(contract_path)
             eval_path = self.state.sprint_eval(sprint_id)
 
+            # Skip if explicitly skipped
+            skip_path = self.state.sprint_skip(sprint_id)
+            if skip_path.exists():
+                self.logger.info(f"Sprint {sprint_id} marked as SKIP, skipping")
+                continue
+
             # Skip if already passed
             if eval_path.exists():
                 eval_data = self._read_eval(eval_path)
@@ -104,6 +128,7 @@ class Orchestrator:
             self.logger.info("=" * 40)
 
             # Contract Negotiation
+            self._write_current_agent("Negotiator", sprint_id, 0)
             self.negotiator.run(sprint_id, self.cost, self.logger)
 
             if not self._approval_granted():
@@ -125,6 +150,7 @@ class Orchestrator:
                     if eval_data:
                         feedback = eval_data.get("feedback", "")
 
+                self._write_current_agent("Generator", sprint_id, retry_count)
                 gen_result = self.generator.run(sprint_id, feedback, self.cost, self.logger)
                 if not gen_result.success:
                     self.logger.error(f"Sprint {sprint_id} generator failed")
@@ -136,6 +162,7 @@ class Orchestrator:
                     continue
 
                 # Evaluator
+                self._write_current_agent("Evaluator", sprint_id, retry_count)
                 eval_result = self.evaluator.run(sprint_id, self.cost, self.logger)
                 if not eval_result.success or eval_result.parsed_data is None:
                     self.logger.error(f"Sprint {sprint_id} evaluator no output")
@@ -218,10 +245,17 @@ class Orchestrator:
     def _approval_granted(self) -> bool:
         if not self.config.require_approval:
             return True
+        path = self.state.approval_file
         try:
-            data = json.loads(self.state.approval_file.read_text())
+            data = json.loads(path.read_text())
             return bool(data.get("approved"))
-        except Exception:
+        except FileNotFoundError:
+            return False
+        except json.JSONDecodeError:
+            self.logger.error(f"Approval file corrupt: {path}")
+            return False
+        except Exception as e:
+            self.logger.warning(f"Approval check failed: {e}")
             return False
 
     def _write_verification_card(self, sprint_id: int, eval_data: dict) -> None:
@@ -254,7 +288,7 @@ class Orchestrator:
 
     def _log_model_config(self) -> None:
         """Log LLM configuration for each agent."""
-        for agent in ("planner", "generator", "evaluator"):
+        for agent in ("planner", "negotiator", "generator", "evaluator"):
             model = self.config.get_model(agent)
             api_key = getattr(self.config, f"{agent}_api_key", "") or self.config.llm_api_key
             base_url = getattr(self.config, f"{agent}_base_url", "") or self.config.llm_base_url
@@ -289,3 +323,62 @@ class Orchestrator:
             else:
                 failed += 1
         return passed, failed
+
+    # --- Lock management ---
+
+    def _acquire_lock(self, force: bool = False) -> bool:
+        """Acquire run.lock to prevent concurrent runs. Returns True on success."""
+        lock = self.state.lock_file
+        if lock.exists() and not force:
+            try:
+                data = json.loads(lock.read_text())
+                pid = data.get("pid", 0)
+                started = data.get("started", "?")
+                if pid and _pid_alive(pid):
+                    self.logger.error(
+                        f"chase run already in progress (PID={pid}, started at {started}). "
+                        "Use --force to override."
+                    )
+                    return False
+            except Exception:
+                pass
+        lock.write_text(json.dumps({
+            "pid": os.getpid(),
+            "started": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }))
+        return True
+
+    def _release_lock(self) -> None:
+        lock = self.state.lock_file
+        try:
+            if lock.exists():
+                lock.unlink()
+        except OSError:
+            pass
+
+    # --- Current agent tracking ---
+
+    def _write_current_agent(self, agent: str, sprint_id: int, retry: int) -> None:
+        try:
+            self.state.current_agent_file.write_text(json.dumps({
+                "agent": agent,
+                "sprint_id": sprint_id,
+                "retry": retry,
+            }))
+        except OSError:
+            pass
+
+    def _clear_current_agent(self) -> None:
+        try:
+            if self.state.current_agent_file.exists():
+                self.state.current_agent_file.unlink()
+        except OSError:
+            pass
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False

@@ -38,12 +38,22 @@ def run_cli(
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env, cwd=cwd)
         raw_stdout = proc.stdout
+        result = adapter.parse_output(raw_stdout)
+        result.return_code = proc.returncode
+        result.stderr_text = proc.stderr or ""
+        return result
     except subprocess.TimeoutExpired:
-        return CLIResult(result_text="", cost=0.0, raw_output="[TIMEOUT]")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return CLIResult(result_text="", cost=0.0, raw_output="")
-
-    return adapter.parse_output(raw_stdout)
+        return CLIResult(result_text="", cost=0.0, raw_output=f"[TIMEOUT] after {timeout}s")
+    except subprocess.CalledProcessError as e:
+        return CLIResult(
+            result_text="", cost=0.0, raw_output=e.stdout or "",
+            return_code=e.returncode, stderr_text=e.stderr or "",
+        )
+    except FileNotFoundError:
+        return CLIResult(
+            result_text="", cost=0.0, raw_output=f"[CLI NOT FOUND] {cmd[0]}",
+            return_code=127,
+        )
 
 
 # Backward-compatible alias

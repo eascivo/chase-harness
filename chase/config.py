@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from chase.dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -67,16 +70,16 @@ class ChaseConfig:
             chase_home=Path(home),
             workspace=workspace,
             # Budget & iteration
-            cost_limit=float(os.environ.get("CHASE_COST_LIMIT", "10000.0")),
-            max_sprints=int(os.environ.get("CHASE_MAX_SPRINTS", "50")),
-            max_retries=int(os.environ.get("CHASE_MAX_RETRIES", "10")),
-            stale_limit=int(os.environ.get("CHASE_STALE_LIMIT", "3")),
-            eval_threshold=float(os.environ.get("CHASE_EVAL_THRESHOLD", "0.7")),
+            cost_limit=_env_float("CHASE_COST_LIMIT", 10000.0),
+            max_sprints=_env_int("CHASE_MAX_SPRINTS", 50),
+            max_retries=_env_int("CHASE_MAX_RETRIES", 10),
+            stale_limit=_env_int("CHASE_STALE_LIMIT", 3),
+            eval_threshold=_env_float("CHASE_EVAL_THRESHOLD", 0.7),
             # Playwright
             app_url=os.environ.get("CHASE_APP_URL", ""),
             playwright_enabled=os.environ.get("CHASE_PLAYWRIGHT", "") == "1",
             # Computer Use
-            cdp_port=int(os.environ.get("CHASE_CDP_PORT", "9222")),
+            cdp_port=_env_int("CHASE_CDP_PORT", 9222),
             computer_use_enabled=os.environ.get("CHASE_COMPUTER_USE", "") == "1",
             # Trust workflow
             require_approval=_env_flag("CHASE_REQUIRE_APPROVAL", default=True),
@@ -140,3 +143,25 @@ def _env_flag(name: str, *, default: bool) -> bool:
     if value is None or value == "":
         return default
     return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name, "")
+    if not value:
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid {name}={value}; expected integer. Using default: {default}")
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name, "")
+    if not value:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid {name}={value}; expected number. Using default: {default}")
+        return default

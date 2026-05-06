@@ -406,7 +406,7 @@ def _project_cost(project_path: Path) -> float:
         if isinstance(data, list):
             return sum(float(e.get("cost_usd", 0)) for e in data)
         return float(
-            data.get("total_cost_usd", data.get("cost_usd", 0))
+            data.get("total_cost", data.get("total_cost_usd", data.get("cost_usd", 0)))
         )
     except (json.JSONDecodeError, OSError, TypeError, ValueError):
         return 0.0

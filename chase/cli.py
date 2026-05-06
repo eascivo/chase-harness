@@ -74,6 +74,7 @@ def cmd_init(args) -> int:
         mission_file.write_text("""# Goal
 
 <!-- Describe what you want to accomplish -->
+<!-- Tip: Keep under 2KB. Each sprint takes ~10-20 min. Be specific and measurable. -->
 
 # Context
 
@@ -121,7 +122,13 @@ def cmd_init(args) -> int:
     print()
     print("  1. Edit MISSION.md with your goal")
     print("  2. Edit .chase/.env to configure your LLM provider")
-    print("  3. Run: chase run")
+    config = ChaseConfig.from_env(ws)
+    if config.require_approval:
+        print("  3. Run: chase plan")
+        print("  4. Review the plan, then: chase approve")
+        print("  5. Run: chase run")
+    else:
+        print("  3. Run: chase run")
     print()
     return 0
 
@@ -140,7 +147,16 @@ def cmd_run(args) -> int:
 
     config = ChaseConfig.from_env(ws)
     orch = Orchestrator(config, state)
-    return orch.run()
+
+    # Handle --force for lock override
+    force = getattr(args, "force", False)
+    if not orch._acquire_lock(force=force):
+        return 1
+    try:
+        return orch._run_inner()
+    finally:
+        orch._release_lock()
+        orch._clear_current_agent()
 
 
 def cmd_plan(args) -> int:
@@ -195,9 +211,30 @@ def cmd_status(args) -> int:
         print_red("No .chase/ found. Run 'chase init' first.")
         return 1
 
+    watch = getattr(args, "watch", False)
+    if watch:
+        return _cmd_status_watch(ws, state)
+
+    return _cmd_status_render(ws, state)
+
+
+def _cmd_status_render(ws, state) -> int:
     print_bold("Chase Status")
     print(f"  Workspace: {ws}")
     print()
+
+    # Current agent
+    agent_file = state.current_agent_file
+    if agent_file.exists():
+        try:
+            agent_data = json.loads(agent_file.read_text())
+            agent_name = agent_data.get("agent", "?")
+            sprint_id = agent_data.get("sprint_id", "?")
+            retry = agent_data.get("retry", "?")
+            print(f"  Currently: {agent_name} (Sprint {sprint_id}, retry {retry})")
+            print()
+        except Exception:
+            pass
 
     # Mission
     if state.mission_file.exists():
@@ -274,6 +311,24 @@ def cmd_status(args) -> int:
     return 0
 
 
+def _cmd_status_watch(ws, state) -> int:
+    """Refresh status display every 5 seconds until Ctrl+C."""
+    import time
+    import os
+    try:
+        while True:
+            # Clear screen
+            print("\033[2J\033[H", end="")
+            _cmd_status_render(ws, state)
+            print()
+            print_yellow("  Watching... (Ctrl+C to stop)")
+            sys.stdout.flush()
+            time.sleep(5)
+    except KeyboardInterrupt:
+        print()
+        return 0
+
+
 def _read_preview_contract(state: StateDir, contract_path: Path) -> dict:
     sid = int(contract_path.stem.split("-")[0])
     negotiated_path = state.sprint_negotiated(sid)
@@ -306,6 +361,146 @@ def cmd_reset(args) -> int:
     return 0
 
 
+def cmd_doctor(args) -> int:
+    """Diagnose common setup issues."""
+    import sys
+    import struct
+
+    ws = resolve_workspace(args.workspace)
+    state = StateDir.for_workspace(ws)
+    config = ChaseConfig.from_env(ws)
+
+    ok = "\033[32m[OK]\033[0m"
+    fail = "\033[31m[FAIL]\033[0m"
+    warn = "\033[33m[WARN]\033[0m"
+    issues = 0
+
+    # 1. Python version
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    if sys.version_info >= (3, 10):
+        print(f"  {ok}  Python {py_ver}")
+    else:
+        print(f"  {warn}  Python {py_ver} (Chase recommends 3.10+)")
+        issues += 1
+
+    # 2. CLI adapter installed
+    cli_cmd = config.cli
+    try:
+        proc = subprocess.run([cli_cmd, "--version"], capture_output=True, text=True, timeout=5)
+        ver = (proc.stdout or proc.stderr or "").strip().split("\n")[0]
+        print(f"  {ok}  CLI: {cli_cmd} ({ver})")
+    except FileNotFoundError:
+        print(f"  {fail}  CLI: '{cli_cmd}' not found in PATH. Install it or set CHASE_CLI.")
+        issues += 1
+    except Exception as e:
+        print(f"  {fail}  CLI: '{cli_cmd}' check failed: {e}")
+        issues += 1
+
+    # 3. MISSION.md exists and size
+    mission = state.mission_file
+    if mission.exists():
+        size = mission.stat().st_size
+        if size < 30:
+            print(f"  {warn}  MISSION.md exists but seems too short ({size}B). Add more detail.")
+            issues += 1
+        elif size > 3072:
+            print(f"  {warn}  MISSION.md is large ({size}B). Keep under 2KB for best results.")
+            issues += 1
+        else:
+            print(f"  {ok}  MISSION.md ({size}B)")
+    else:
+        print(f"  {fail}  MISSION.md not found. Create it in the workspace root.")
+        issues += 1
+
+    # 4. .chase/ directory structure
+    if state.root.is_dir():
+        dirs_ok = all(d.is_dir() for d in [state.sprints, state.handoffs, state.logs])
+        if dirs_ok:
+            print(f"  {ok}  .chase/ directory structure")
+        else:
+            print(f"  {warn}  .chase/ exists but incomplete. Run 'chase init' to fix.")
+            issues += 1
+    else:
+        print(f"  {fail}  .chase/ not found. Run 'chase init' first.")
+        issues += 1
+
+    # 5. Git repository
+    try:
+        subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True, timeout=5, check=True)
+        print(f"  {ok}  Git repository")
+    except Exception:
+        print(f"  {fail}  Not a git repository. Run 'git init' first.")
+        issues += 1
+
+    # 6. .env config validity
+    env_ok = True
+    if config.cost_limit <= 0:
+        print(f"  {fail}  CHASE_COST_LIMIT={config.cost_limit} must be > 0")
+        env_ok = False
+    if config.eval_threshold < 0 or config.eval_threshold > 1:
+        print(f"  {fail}  CHASE_EVAL_THRESHOLD={config.eval_threshold} must be 0-1")
+        env_ok = False
+    if config.max_retries < 1:
+        print(f"  {fail}  CHASE_MAX_RETRIES={config.max_retries} must be >= 1")
+        env_ok = False
+    if env_ok:
+        print(f"  {ok}  Configuration valid (cost_limit={config.cost_limit}, threshold={config.eval_threshold})")
+    else:
+        issues += 1
+
+    print()
+    if issues == 0:
+        print_green("All checks passed. Ready to run.")
+        return 0
+    else:
+        print_yellow(f"{issues} issue(s) found. Fix them before running 'chase run'.")
+        return 1
+
+
+def cmd_retry(args) -> int:
+    """Retry a specific sprint by clearing its eval and result."""
+    ws = resolve_workspace(args.workspace)
+    state = StateDir.for_workspace(ws)
+
+    sprint_id = args.sprint_id
+    eval_path = state.sprint_eval(sprint_id)
+    result_path = state.sprint_result(sprint_id)
+
+    if not state.sprint_contract(sprint_id).exists():
+        print_red(f"Sprint {sprint_id} contract not found.")
+        return 1
+
+    removed = []
+    if eval_path.exists():
+        eval_path.unlink()
+        removed.append("eval")
+    if result_path.exists():
+        result_path.unlink()
+        removed.append("result")
+
+    if removed:
+        print_green(f"Sprint {sprint_id}: removed {', '.join(removed)}. Run 'chase run' to retry.")
+    else:
+        print_yellow(f"Sprint {sprint_id}: no eval/result to clear (not yet run).")
+    return 0
+
+
+def cmd_skip(args) -> int:
+    """Skip a specific sprint."""
+    ws = resolve_workspace(args.workspace)
+    state = StateDir.for_workspace(ws)
+
+    sprint_id = args.sprint_id
+    if not state.sprint_contract(sprint_id).exists():
+        print_red(f"Sprint {sprint_id} contract not found.")
+        return 1
+
+    skip_path = state.sprint_skip(sprint_id)
+    skip_path.write_text(json.dumps({"verdict": "SKIP"}) + "\n")
+    print_green(f"Sprint {sprint_id}: marked as SKIP. Orchestrator will skip it.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="chase",
@@ -313,8 +508,38 @@ def main() -> int:
     )
     sub = parser.add_subparsers(dest="command")
 
-    for name in ("init", "plan", "approve", "run", "resume", "status", "reset"):
-        p = sub.add_parser(name)
+    cmd_help = {
+        "init": "Initialize chase in a workspace",
+        "plan": "Generate sprint contracts from MISSION.md",
+        "approve": "Approve a plan for execution",
+        "run": "Execute the full plan (plan → approve → sprints)",
+        "resume": "Alias for run; resumes from existing sprint state",
+        "status": "Show sprint progress and costs",
+        "reset": "Delete all sprint state and start fresh",
+        "doctor": "Diagnose common setup issues",
+        "retry": "Clear eval/result for a sprint and allow re-run",
+        "skip": "Mark a sprint as SKIP so orchestrator skips it",
+    }
+    simple_cmds = ("init", "plan", "approve", "reset", "doctor")
+    for name in simple_cmds:
+        p = sub.add_parser(name, help=cmd_help.get(name))
+        p.add_argument("--workspace", default=None)
+
+    # run and resume with --force
+    for name in ("run", "resume"):
+        p = sub.add_parser(name, help=cmd_help[name])
+        p.add_argument("--workspace", default=None)
+        p.add_argument("--force", action="store_true", help="Override existing run lock")
+
+    # status with --watch
+    p = sub.add_parser("status", help=cmd_help["status"])
+    p.add_argument("--watch", action="store_true", help="Auto-refresh every 5 seconds")
+    p.add_argument("--workspace", default=None)
+
+    # retry and skip take a sprint_id
+    for name in ("retry", "skip"):
+        p = sub.add_parser(name, help=cmd_help[name])
+        p.add_argument("sprint_id", type=int, help="Sprint number to retry/skip")
         p.add_argument("--workspace", default=None)
 
     # 注册 ray 子命令
@@ -330,6 +555,9 @@ def main() -> int:
         "resume": cmd_run,
         "status": cmd_status,
         "reset": cmd_reset,
+        "doctor": cmd_doctor,
+        "retry": cmd_retry,
+        "skip": cmd_skip,
         "ray": handle_ray,
     }
 

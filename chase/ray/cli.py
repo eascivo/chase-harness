@@ -612,7 +612,7 @@ def handle_ray(args) -> int:
         print("子命令:")
         print("  init              初始化 Ray 编排环境")
         print("  start [--daemon]  启动编排循环")
-        print("  dispatch <path>   动态派发新项目")
+        print("  dispatch <name> <path>  动态派发新项目")
         print("  sync              同步队列与各项目 .chase 状态")
         print("  approve <name>    审批项目，允许执行 chase run")
         print("  inspect <name>    查看项目计划和验收证据")

@@ -1,6 +1,7 @@
 """Evaluator Agent — verify sprint results."""
 
 import json
+import logging
 import subprocess
 
 from chase.agents.base import AgentBase, AgentResult
@@ -8,6 +9,8 @@ from chase.cost import CostTracker
 from chase.logging import ChaseLogger
 from chase.subprocess import run_claude, extract_json_from_text
 from chase.computer_use import is_web_sprint
+
+logger = logging.getLogger(__name__)
 
 
 class EvaluatorAgent(AgentBase):
@@ -207,10 +210,11 @@ Strictly evaluate the above sprint. Verify each criterion:
     def _get_git_diff(self) -> str:
         try:
             proc = subprocess.run(
-                ["git", "diff", "HEAD~1", "--stat", "--diff-filter=M"],
+                ["git", "diff", "HEAD~1", "--stat"],
                 capture_output=True, text=True, timeout=10,
                 cwd=str(self.config.workspace),
             )
             return proc.stdout.strip() or "no diff"
-        except Exception:
+        except Exception as e:
+            logger.debug(f"git diff failed: {e}")
             return "no diff"

@@ -53,13 +53,28 @@ Output a JSON array of sprint contracts. Only output JSON, no other text."""
 
         cost.track(result.cost, "0", "planner")
 
+        # Save raw output for debugging
+        debug_file = self.state.sprints / "planner-raw-output.txt"
+        self.state.sprints.mkdir(parents=True, exist_ok=True)
+
+        # Check for timeout
+        if "[TIMEOUT]" in result.raw_output:
+            debug_file.write_text(result.result_text or result.raw_output)
+            logger.error(
+                f"Planner timed out (300s). Raw output saved to {debug_file}. "
+                "Try: shorten MISSION.md or check CLI auth."
+            )
+            return AgentResult(success=False, cost=result.cost, raw_text=result.result_text, parsed_data=None)
+
         # Extract JSON sprint list
         sprints_json = extract_json_from_text(result.result_text)
         if sprints_json is None:
-            logger.error("Failed to parse planner output")
-            # Save raw output for debugging
-            debug_file = self.state.sprints / "planner-raw-output.txt"
             debug_file.write_text(result.result_text)
+            preview = (result.result_text or "")[:200]
+            logger.error(
+                f"Planner returned non-JSON. Raw output saved to {debug_file}. "
+                f"First 200 chars: {preview}"
+            )
             return AgentResult(success=False, cost=result.cost, raw_text=result.result_text, parsed_data=None)
 
         # Write sprint contract files

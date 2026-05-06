@@ -12,6 +12,8 @@ class CLIResult:
     result_text: str
     cost: float
     raw_output: str
+    return_code: int = 0
+    stderr_text: str = ""
 
 
 class BaseAdapter(ABC):

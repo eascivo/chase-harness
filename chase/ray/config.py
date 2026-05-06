@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # 项目状态常量
 STATUS_PENDING = "pending"
@@ -124,7 +127,12 @@ class RayStateDir:
         try:
             data = json.loads(self.queue_file.read_text(encoding="utf-8"))
             return RayConfig.from_dict(data)
-        except (json.JSONDecodeError, KeyError):
+        except json.JSONDecodeError:
+            bad_path = self.queue_file.with_suffix(".json.bad")
+            self.queue_file.rename(bad_path)
+            logger.warning(f"Queue file corrupt, renamed to {bad_path}. Starting with empty queue.")
+            return RayConfig()
+        except KeyError:
             return RayConfig()
 
     def save_queue(self, config: RayConfig) -> None:
