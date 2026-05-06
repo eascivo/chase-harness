@@ -70,16 +70,43 @@ class Orchestrator:
             self.logger.error("Not a git repository")
             raise SystemExit(1)
 
-    def run(self) -> int:
+    def run(self, *, force: bool = False) -> int:
         """Main orchestration loop. Returns exit code.
 
-        Lock is managed by the CLI layer (cmd_run). This method runs without lock logic.
+        Manages run.lock and signal cleanup internally so Ray mode is also protected.
         """
         self.state.init_directories()
-        return self._run_inner()
+        if not self._acquire_lock(force=force):
+            return 1
+        try:
+            self._install_signal_handlers()
+            self.preflight()
+            return self._execute()
+        finally:
+            self._release_lock()
+            self._clear_current_agent()
 
-    def _run_inner(self) -> int:
-        """Main orchestration logic."""
+    def _install_signal_handlers(self) -> None:
+        """Ensure SIGTERM/SIGINT release the lock on abrupt termination."""
+        orig_sigterm = signal.getsignal(signal.SIGTERM)
+        orig_sigint = signal.getsignal(signal.SIGINT)
+
+        def _handler(signum, frame):
+            self._release_lock()
+            self._clear_current_agent()
+            # Chain to previous handler
+            if signum == signal.SIGTERM and callable(orig_sigterm):
+                orig_sigterm(signum, frame)
+            elif signum == signal.SIGINT and callable(orig_sigint):
+                orig_sigint(signum, frame)
+            else:
+                raise SystemExit(128 + signum)
+
+        signal.signal(signal.SIGTERM, _handler)
+        signal.signal(signal.SIGINT, _handler)
+
+    def _execute(self) -> int:
+        """Core orchestration logic (lock already held)."""
         self.preflight()
 
         # Phase 1: Planning

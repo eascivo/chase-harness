@@ -146,17 +146,9 @@ def cmd_run(args) -> int:
         return 1
 
     config = ChaseConfig.from_env(ws)
-    orch = Orchestrator(config, state)
-
-    # Handle --force for lock override
     force = getattr(args, "force", False)
-    if not orch._acquire_lock(force=force):
-        return 1
-    try:
-        return orch._run_inner()
-    finally:
-        orch._release_lock()
-        orch._clear_current_agent()
+    orch = Orchestrator(config, state)
+    return orch.run(force=force)
 
 
 def cmd_plan(args) -> int:
@@ -315,6 +307,11 @@ def _cmd_status_watch(ws, state) -> int:
     """Refresh status display every 5 seconds until Ctrl+C."""
     import time
     import os
+
+    if not sys.stdout.isatty():
+        print_yellow("--watch requires a terminal. Showing single status render instead.")
+        return _cmd_status_render(ws, state)
+
     try:
         while True:
             # Clear screen
@@ -364,7 +361,6 @@ def cmd_reset(args) -> int:
 def cmd_doctor(args) -> int:
     """Diagnose common setup issues."""
     import sys
-    import struct
 
     ws = resolve_workspace(args.workspace)
     state = StateDir.for_workspace(ws)

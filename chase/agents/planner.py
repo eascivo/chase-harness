@@ -57,7 +57,7 @@ Output a JSON array of sprint contracts. Only output JSON, no other text."""
         debug_file = self.state.sprints / "planner-raw-output.txt"
         self.state.sprints.mkdir(parents=True, exist_ok=True)
 
-        # Check for timeout
+        # Check for timeout — directory already ensured above
         if "[TIMEOUT]" in result.raw_output:
             debug_file.write_text(result.result_text or result.raw_output)
             logger.error(
