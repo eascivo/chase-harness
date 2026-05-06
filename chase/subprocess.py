@@ -6,6 +6,8 @@ import json
 import logging
 import re
 import subprocess
+import sys
+import time
 
 from chase.adapters import get_adapter, CLIResult
 
@@ -56,6 +58,75 @@ def run_cli(
         )
 
 
+def run_cli_streaming(
+    prompt: str,
+    *,
+    cli: str = "claude",
+    max_turns: int = 10,
+    allowed_tools: list[str] | None = None,
+    model: str | None = None,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+    timeout: int = 600,
+    label: str | None = None,
+) -> CLIResult:
+    """Run an AI coding CLI with real-time output streaming.
+
+    Behaves like ``run_cli`` but streams stdout lines to stderr with a
+    ``[label]`` prefix so the user sees progress. Falls back to
+    ``run_cli`` when *label* is ``None``.
+    """
+    if label is None:
+        return run_cli(
+            prompt, cli=cli, max_turns=max_turns, allowed_tools=allowed_tools,
+            model=model, env=env, cwd=cwd, timeout=timeout,
+        )
+
+    adapter = get_adapter(cli)
+    cmd = adapter.build_command(
+        prompt,
+        model=model,
+        max_turns=max_turns,
+        allowed_tools=allowed_tools,
+    )
+
+    prefix = f"[{label}]"
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            cwd=cwd,
+        )
+
+        stdout_lines: list[str] = []
+        assert proc.stdout is not None  # guaranteed by PIPE
+        for line in proc.stdout:
+            stdout_lines.append(line)
+            print(f"{prefix} {line}", end="", file=sys.stderr)
+
+        proc.wait(timeout=max(timeout, 1))
+
+        raw_stdout = "".join(stdout_lines)
+        result = adapter.parse_output(raw_stdout)
+        result.return_code = proc.returncode
+        result.stderr_text = (proc.stderr.read() if proc.stderr else "") or ""
+        return result
+
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        return CLIResult(result_text="", cost=0.0, raw_output=f"[TIMEOUT] after {timeout}s")
+    except FileNotFoundError:
+        return CLIResult(
+            result_text="", cost=0.0, raw_output=f"[CLI NOT FOUND] {cmd[0]}",
+            return_code=127,
+        )
+
+
 # Backward-compatible alias
 run_claude = run_cli
 
@@ -84,6 +155,12 @@ def extract_json_from_text(text: str) -> dict | list | None:
     # Also try original text (in case stripping broke something)
     try:
         return json.loads(text.strip())
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Try stripping surrounding backticks (Claude sometimes wraps output in backticks)
+    try:
+        return json.loads(text.strip().strip('`'))
     except (json.JSONDecodeError, ValueError):
         pass
 
@@ -126,6 +203,45 @@ def _fix_llm_json_quirks(text: str) -> str:
     # Fix unescaped double quotes inside JSON string values using a state machine
     text = _fix_unescaped_quotes_in_json(text)
     return text
+
+
+def extract_json_from_text_with_retry(
+    text: str,
+    *,
+    retry_fn=None,
+    retry_kwargs: dict | None = None,
+) -> tuple[dict | list | None, str]:
+    """Try ``extract_json_from_text``; on failure, optionally retry via *retry_fn*.
+
+    Returns ``(parsed_json, raw_output_text)``.  If all attempts fail, returns
+    ``(None, raw_output_text)``.
+
+    *retry_fn* must accept keyword arguments matching the ``run_cli`` /
+    ``run_cli_streaming`` signature and return a ``CLIResult``.  When provided
+    and the first parse fails, the CLI is re-invoked with a JSON-fix instruction
+    appended and a half-timeout.
+    """
+    parsed = extract_json_from_text(text)
+    if parsed is not None:
+        return parsed, text
+
+    if retry_fn is None:
+        return None, text
+
+    kwargs = dict(retry_kwargs or {})
+    original_timeout = kwargs.get("timeout", 600)
+    kwargs["timeout"] = max(original_timeout // 2, 30)
+
+    retry_suffix = (
+        "\n\n[SYSTEM] Your previous output was not valid JSON. "
+        "Output ONLY valid JSON. No markdown, no explanation, no code fences."
+    )
+    kwargs["prompt"] = kwargs.get("prompt", "") + retry_suffix
+
+    retry_result = retry_fn(**kwargs)
+    retry_text = retry_result.result_text
+    parsed = extract_json_from_text(retry_text)
+    return parsed, retry_text
 
 
 def _fix_unescaped_quotes_in_json(text: str) -> str:

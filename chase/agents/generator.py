@@ -7,7 +7,7 @@ from chase.agents.base import AgentBase, AgentResult
 from chase.computer_use import is_web_sprint, run_browser_verification, run_interaction_test
 from chase.cost import CostTracker
 from chase.logging import ChaseLogger
-from chase.subprocess import run_claude
+from chase.subprocess import run_claude, run_cli_streaming
 
 
 class GeneratorAgent(AgentBase):
@@ -72,7 +72,11 @@ Implement the sprint contract defined above. When done:
 1. git add relevant files and commit (commit message starts with "sprint {sprint_id}:")
 2. Output SPRINT RESULT report"""
 
-        result = run_claude(
+        import time as _time
+        _label = f"Generator/Sprint {sprint_id}"
+        logger.sprint(sprint_id, "generator", f">>> {_label} working... (timeout 900s)")
+        t0 = _time.monotonic()
+        result = run_cli_streaming(
             full_prompt,
             cli=self.config.cli,
             max_turns=30,
@@ -81,7 +85,10 @@ Implement the sprint contract defined above. When done:
             env=self.config.get_agent_env("generator"),
             cwd=str(self.config.workspace),
             timeout=900,  # Generator needs time for browser interaction
+            label="Generator",
         )
+        elapsed = _time.monotonic() - t0
+        logger.sprint(sprint_id, "generator", f">>> Generator done ({elapsed:.1f}s)")
 
         cost.track(result.cost, str(sprint_id), "generator")
 
@@ -90,7 +97,15 @@ Implement the sprint contract defined above. When done:
         if result.result_text and result.result_text.strip():
             result_path.write_text(result.result_text)
         else:
-            logger.sprint(sprint_id, "generator", "Warning: empty result, skipping file write")
+            logger.sprint(
+                sprint_id, "generator",
+                f"Generator produced empty output.\n"
+                f"Suggestions:\n"
+                f"  1. Check if your CLI adapter ({self.config.cli}) is authenticated\n"
+                f"  2. Try a more powerful model: CHASE_GENERATOR_MODEL=gpt-4o\n"
+                f"  3. Simplify the sprint contract for sprint {sprint_id}\n"
+                f"  4. Increase timeout: current is 900s",
+            )
             return AgentResult(success=False, cost=result.cost, raw_text=result.result_text or "", parsed_data=None)
 
         logger.sprint(sprint_id, "generator", f"Done, cost ${result.cost:.4f}")

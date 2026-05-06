@@ -5,7 +5,10 @@ import json
 from chase.agents.base import AgentBase, AgentResult
 from chase.cost import CostTracker
 from chase.logging import ChaseLogger
-from chase.subprocess import run_claude, extract_json_from_text
+from chase.subprocess import (
+    run_claude, run_cli_streaming,
+    extract_json_from_text, extract_json_from_text_with_retry,
+)
 
 
 class PlannerAgent(AgentBase):
@@ -40,7 +43,10 @@ class PlannerAgent(AgentBase):
 
 Output a JSON array of sprint contracts. Only output JSON, no other text."""
 
-        result = run_claude(
+        import time
+        logger.info(">>> Planner working... (timeout 300s)")
+        t0 = time.monotonic()
+        result = run_cli_streaming(
             full_prompt,
             cli=self.config.cli,
             max_turns=10,
@@ -49,7 +55,10 @@ Output a JSON array of sprint contracts. Only output JSON, no other text."""
             env=self.config.get_agent_env("planner"),
             cwd=str(self.config.workspace),
             timeout=300,
+            label="Planner",
         )
+        elapsed = time.monotonic() - t0
+        logger.info(f">>> Planner done ({elapsed:.1f}s)")
 
         cost.track(result.cost, "0", "planner")
 
@@ -66,16 +75,37 @@ Output a JSON array of sprint contracts. Only output JSON, no other text."""
             )
             return AgentResult(success=False, cost=result.cost, raw_text=result.result_text, parsed_data=None)
 
-        # Extract JSON sprint list
-        sprints_json = extract_json_from_text(result.result_text)
+        # Extract JSON sprint list (with auto-retry)
+        sprints_json, retry_text = extract_json_from_text_with_retry(
+            result.result_text,
+            retry_fn=run_cli_streaming,
+            retry_kwargs=dict(
+                prompt=full_prompt,
+                cli=self.config.cli,
+                max_turns=10,
+                allowed_tools=["Read", "Glob", "Grep"],
+                model=self.config.get_model("planner"),
+                env=self.config.get_agent_env("planner"),
+                cwd=str(self.config.workspace),
+                timeout=300,
+                label="Planner",
+            ),
+        )
         if sprints_json is None:
-            debug_file.write_text(result.result_text)
-            preview = (result.result_text or "")[:200]
+            debug_file.write_text(retry_text)
             logger.error(
-                f"Planner returned non-JSON. Raw output saved to {debug_file}. "
-                f"First 200 chars: {preview}"
+                f"Planner failed to produce valid JSON after retry.\n"
+                f"Raw output: {debug_file}\n"
+                f"Suggestions:\n"
+                f"  1. Shorten MISSION.md to under 2KB\n"
+                f"  2. Try a more powerful model: CHASE_MODEL=gpt-4o chase plan\n"
+                f"  3. Check if your CLI adapter ({self.config.cli}) is authenticated\n"
+                f"  4. Read raw output to see what the model actually returned"
             )
-            return AgentResult(success=False, cost=result.cost, raw_text=result.result_text, parsed_data=None)
+            return AgentResult(
+                success=False, cost=result.cost,
+                raw_text=retry_text, parsed_data=None,
+            )
 
         # Write sprint contract files
         if isinstance(sprints_json, list):

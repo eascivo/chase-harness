@@ -7,7 +7,7 @@ import subprocess
 from chase.agents.base import AgentBase, AgentResult
 from chase.cost import CostTracker
 from chase.logging import ChaseLogger
-from chase.subprocess import run_claude, extract_json_from_text
+from chase.subprocess import run_claude, run_cli_streaming, extract_json_from_text
 from chase.computer_use import is_web_sprint
 
 logger = logging.getLogger(__name__)
@@ -157,7 +157,10 @@ Strictly evaluate the above sprint. Verify each criterion:
 7. Include design_score and design_feedback in your JSON output when UI screenshots are available
 8. Output JSON evaluation result (only JSON, no other text)"""
 
-        claude_result = run_claude(
+        import time as _time
+        logger.sprint(sprint_id, "evaluator", ">>> Evaluator working... (timeout 480s)")
+        t0 = _time.monotonic()
+        claude_result = run_cli_streaming(
             full_prompt,
             cli=self.config.cli,
             max_turns=5,  # Evaluator only needs to read files + output JSON
@@ -166,13 +169,25 @@ Strictly evaluate the above sprint. Verify each criterion:
             env=self.config.get_agent_env("evaluator"),
             cwd=str(self.config.workspace),
             timeout=480,
+            label="Evaluator",
         )
+        elapsed = _time.monotonic() - t0
+        logger.sprint(sprint_id, "evaluator", f">>> Evaluator done ({elapsed:.1f}s)")
 
         cost.track(claude_result.cost, str(sprint_id), "evaluator")
 
         # Extract JSON eval result
         eval_json = extract_json_from_text(claude_result.result_text)
         if eval_json is None:
+            logger.sprint(
+                sprint_id, "evaluator",
+                f"Evaluator failed to produce valid JSON.\n"
+                f"Suggestions:\n"
+                f"  1. Check sprint contract is well-defined (sprint {sprint_id})\n"
+                f"  2. Try a more powerful model: CHASE_EVALUATOR_MODEL=gpt-4o\n"
+                f"  3. Reduce evaluation criteria complexity\n"
+                f"  4. Raw output saved in eval result",
+            )
             eval_json = {
                 "score": 0.0,
                 "verdict": "ERROR",

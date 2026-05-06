@@ -453,6 +453,72 @@ def cmd_doctor(args) -> int:
         return 1
 
 
+def cmd_logs(args) -> int:
+    """View chase log files with filtering."""
+    import re as _re
+
+    ws = resolve_workspace(args.workspace)
+    state = StateDir.for_workspace(ws)
+
+    log_dir = state.logs
+    if not log_dir.is_dir():
+        print_yellow("No logs directory found. Run 'chase run' first.")
+        return 0
+
+    # Collect all log files, sorted by name (date)
+    log_files = sorted(log_dir.glob("*.log"))
+    if not log_files:
+        print_yellow("No log files found.")
+        return 0
+
+    # Read all lines from all log files
+    lines: list[str] = []
+    for lf in log_files:
+        try:
+            lines.extend(lf.read_text().splitlines())
+        except OSError:
+            pass
+
+    if not lines:
+        print_yellow("Log files are empty.")
+        return 0
+
+    # Apply filters
+    sprint_filter = getattr(args, "sprint", None)
+    agent_filter = getattr(args, "agent", None)
+
+    if sprint_filter is not None:
+        sprint_pattern = _re.compile(rf"\[Sprint {sprint_filter}/")
+        lines = [l for l in lines if sprint_pattern.search(l)]
+
+    if agent_filter is not None:
+        agent_lower = agent_filter.lower()
+        lines = [l for l in lines if agent_lower in l.lower()]
+
+    # Tail
+    show_all = getattr(args, "all", False)
+    tail = getattr(args, "tail", 20)
+    if not show_all:
+        lines = lines[-tail:]
+
+    if not lines:
+        print_yellow("No matching log entries found.")
+        return 0
+
+    # Print with color coding
+    for line in lines:
+        if "ERROR" in line:
+            print_red(line)
+        elif "WARNING" in line or "WARN" in line:
+            print_yellow(line)
+        elif "PASSED" in line or "PASS" in line:
+            print_green(line)
+        else:
+            print(line)
+
+    return 0
+
+
 def cmd_retry(args) -> int:
     """Retry a specific sprint by clearing its eval and result."""
     ws = resolve_workspace(args.workspace)
@@ -515,6 +581,7 @@ def main() -> int:
         "doctor": "Diagnose common setup issues",
         "retry": "Clear eval/result for a sprint and allow re-run",
         "skip": "Mark a sprint as SKIP so orchestrator skips it",
+        "logs": "View chase log files",
     }
     simple_cmds = ("init", "plan", "approve", "reset", "doctor")
     for name in simple_cmds:
@@ -538,6 +605,14 @@ def main() -> int:
         p.add_argument("sprint_id", type=int, help="Sprint number to retry/skip")
         p.add_argument("--workspace", default=None)
 
+    # logs subcommand
+    p = sub.add_parser("logs", help=cmd_help["logs"])
+    p.add_argument("--tail", type=int, default=20, help="Show last N lines (default: 20)")
+    p.add_argument("--sprint", type=int, default=None, help="Filter by sprint ID")
+    p.add_argument("--agent", type=str, default=None, help="Filter by agent name")
+    p.add_argument("--all", action="store_true", help="Show all log lines (no tail limit)")
+    p.add_argument("--workspace", default=None)
+
     # 注册 ray 子命令
     register_ray(sub)
 
@@ -554,6 +629,7 @@ def main() -> int:
         "doctor": cmd_doctor,
         "retry": cmd_retry,
         "skip": cmd_skip,
+        "logs": cmd_logs,
         "ray": handle_ray,
     }
 
