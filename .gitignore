@@ -6,6 +6,8 @@ logs/
 # Chase harness metadata
 .claude-task.md
 .claude-review.md
+.claude-bugfix.md
+.chase-*-task.md
 
 # OS
 .DS_Store
