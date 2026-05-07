@@ -36,6 +36,10 @@ class Project:
     run_at: str | None = None
     completed_at: str | None = None
     needs_review_at: str | None = None
+    # Resource declarations
+    ports: list[int] = field(default_factory=list)
+    env_files: list[str] = field(default_factory=list)
+    services: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -50,6 +54,9 @@ class Project:
             "run_at": self.run_at,
             "completed_at": self.completed_at,
             "needs_review_at": self.needs_review_at,
+            "ports": list(self.ports),
+            "env_files": list(self.env_files),
+            "services": list(self.services),
         }
 
     @classmethod
@@ -66,6 +73,9 @@ class Project:
             run_at=d.get("run_at"),
             completed_at=d.get("completed_at"),
             needs_review_at=d.get("needs_review_at"),
+            ports=d.get("ports", []),
+            env_files=d.get("env_files", []),
+            services=d.get("services", []),
         )
 
 

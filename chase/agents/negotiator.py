@@ -30,10 +30,14 @@ class NegotiatorAgent(AgentBase):
         handoff = self.read_latest_handoff()
         notes = self.read_notes()
 
+        project_ctx = self.build_project_context()
+
         full_prompt = f"""{neg_prompt}
 
 ## Sprint Contract
 {contract}
+
+{project_ctx}
 
 ## Previous Progress
 {handoff}

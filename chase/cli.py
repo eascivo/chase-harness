@@ -80,11 +80,28 @@ def cmd_init(args) -> int:
 
 <!-- Project background, tech stack, relevant files -->
 
-# Acceptance Criteria
+# Acceptance Criteria (MUST)
 
-<!-- Specific, testable completion conditions -->
-<!-- 1. ... -->
-<!-- 2. ... -->
+<!-- These MUST be satisfied for the project to be considered complete. -->
+<!-- Each criterion becomes a sprint or is verified in a sprint. -->
+
+- [ ] <!-- Criterion 1: specific, testable outcome -->
+- [ ] <!-- Criterion 2 -->
+
+# Nice to Have
+
+<!-- These are desired but not required. Lower priority sprints. -->
+
+- [ ] <!-- Optional enhancement -->
+
+# Performance Requirements
+
+<!-- Optional: specific performance targets -->
+
+# UI Requirements
+
+<!-- Optional: specific UI/UX expectations -->
+
 """)
         print_green("Created MISSION.md")
 
@@ -145,10 +162,70 @@ def cmd_run(args) -> int:
         print_red("MISSION.md not found. Create it first.")
         return 1
 
+    watchdog = getattr(args, "watchdog", False)
+
+    if watchdog:
+        return _run_with_watchdog(ws, args)
+
     config = ChaseConfig.from_env(ws)
     force = getattr(args, "force", False)
     orch = Orchestrator(config, state)
     return orch.run(force=force)
+
+
+def _run_with_watchdog(ws: Path, args) -> int:
+    """Run orchestrator under a watchdog supervisor.
+
+    The supervisor monitors the orchestrator subprocess. If it crashes
+    (non-zero exit), the supervisor auto-restarts it. Exits only when:
+    - orchestrator exits with code 0 (success)
+    - user presses Ctrl+C
+    - max restarts exceeded (5 consecutive crashes in 60s)
+    """
+    import time
+
+    max_restarts = 5
+    window_seconds = 60
+    restart_times: list[float] = []
+    attempt = 0
+
+    print_bold("Chase Watchdog Mode")
+    print(f"  Workspace: {ws}")
+    print(f"  Max restarts: {max_restarts} per {window_seconds}s")
+    print()
+
+    while True:
+        attempt += 1
+        print_bold(f"--- Attempt {attempt} ---")
+
+        config = ChaseConfig.from_env(ws)
+        force = getattr(args, "force", False) or attempt > 1
+        state = StateDir.for_workspace(ws)
+        orch = Orchestrator(config, state)
+        exit_code = orch.run(force=force)
+
+        if exit_code == 0:
+            print_green("Chase completed successfully.")
+            return 0
+
+        # Track restart timing
+        now = time.monotonic()
+        restart_times.append(now)
+        # Prune old entries
+        restart_times = [t for t in restart_times if now - t < window_seconds]
+
+        if len(restart_times) >= max_restarts:
+            print_red(f"Watchdog: {max_restarts} crashes in {window_seconds}s. Stopping.")
+            return 1
+
+        print_yellow(f"Watchdog: orchestrator exited with code {exit_code}. Restarting in 5s...")
+        print_yellow(f"  ({len(restart_times)}/{max_restarts} restarts in {window_seconds}s window)")
+        try:
+            time.sleep(5)
+        except KeyboardInterrupt:
+            print()
+            print_yellow("Watchdog stopped by user.")
+            return 130
 
 
 def cmd_plan(args) -> int:
@@ -780,6 +857,8 @@ def main() -> int:
         p = sub.add_parser(name, help=cmd_help[name])
         p.add_argument("--workspace", default=None)
         p.add_argument("--force", action="store_true", help="Override existing run lock")
+        p.add_argument("--watchdog", action="store_true",
+                       help="Auto-restart orchestrator on crash (up to 5x per 60s)")
 
     # status with --watch
     p = sub.add_parser("status", help=cmd_help["status"])

@@ -55,10 +55,14 @@ Browser verification will run automatically after you complete the implementatio
 Fix the issues above and re-submit.
 """
 
+        project_ctx = self.build_project_context()
+
         full_prompt = f"""{gen_prompt}
 
 ## Sprint Contract (negotiated)
 {contract}
+
+{project_ctx}
 
 ## Previous Progress
 {handoff}

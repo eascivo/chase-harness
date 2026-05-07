@@ -140,6 +140,8 @@ You have browser automation tools. For UI-related criteria:
         else:
             playwright_section = ""
 
+        project_ctx = self.build_project_context()
+
         full_prompt = f"""{eval_prompt}
 
 {evidence_section}
@@ -151,6 +153,8 @@ You have browser automation tools. For UI-related criteria:
 
 ## Code Changes
 {git_diff}
+
+{project_ctx}
 {browser_section}{playwright_section}
 ## Instructions
 

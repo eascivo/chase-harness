@@ -31,16 +31,24 @@ class PlannerAgent(AgentBase):
             for c in contracts:
                 existing += f"  {c.name}: {c.read_text()[:200]}\n"
 
+        # Build rich project context
+        project_ctx = self.build_project_context()
+
+        # Build existing progress from evaluations
+        progress_ctx = self._build_progress_context()
+
         full_prompt = f"""{planner_prompt}
 
 ## MISSION
 {mission}
 
+{project_ctx}
+
 ## NOTES
 {notes}
 
 {existing}
-
+{progress_ctx}
 Output a JSON array of sprint contracts. Only output JSON, no other text."""
 
         import time
@@ -116,6 +124,30 @@ Output a JSON array of sprint contracts. Only output JSON, no other text."""
 
         logger.info(f"Planner done: {sprint_count} sprint contracts, cost ${result.cost:.4f}")
         return AgentResult(success=True, cost=result.cost, raw_text=result.result_text, parsed_data=sprints_json)
+
+    def _build_progress_context(self) -> str:
+        """Build context from existing sprint evaluations for incremental planning."""
+        evals = self.state.existing_evals()
+        if not evals:
+            return ""
+
+        lines = ["## Existing Progress (evaluations from previous runs)"]
+        for eval_path in evals:
+            try:
+                data = json.loads(eval_path.read_text())
+                sid = eval_path.stem.split("-")[0]
+                verdict = data.get("verdict", "?")
+                score = data.get("score", "?")
+                title = data.get("title", f"Sprint {sid}")
+                lines.append(f"  Sprint {sid} [{verdict}] score={score}: {title}")
+                if verdict == "FAIL" and data.get("feedback"):
+                    lines.append(f"    feedback: {data['feedback'][:200]}")
+            except Exception:
+                pass
+
+        lines.append("")
+        lines.append("NOTE: Skip sprints that already PASS. Adjust failed sprints based on feedback.")
+        return "\n".join(lines)
 
     def _write_contracts(self, sprints: list) -> int:
         count = 0

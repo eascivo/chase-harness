@@ -11,14 +11,14 @@ MISSION.md (your goal)
       ↓
 ┌─────────────────────────────────────────┐
 │  Planner                                │
-│  Decompose goal into sprint contracts   │
+│  Analyze project + decompose goal       │
 │  → sprints/01-contract.md               │
 ├─────────────────────────────────────────┤
 │  Negotiator (per sprint)                │
 │  Refine contract into precise criteria  │
 │  → sprints/01-negotiated.md             │
 ├─────────────────────────────────────────┤
-│  Generator                              │
+│  Generator (with checkpoint/rollback)   │
 │  Implement against negotiated criteria  │
 │  → git commit → sprints/01-result.md    │
 ├─────────────────────────────────────────┤
@@ -26,6 +26,11 @@ MISSION.md (your goal)
 │  Verify against negotiated criteria     │
 │  → sprints/01-eval.json                 │
 │  Score < 0.7? → retry (up to 10×)       │
+│  3× stale? → re-plan                    │
+├─────────────────────────────────────────┤
+│  Final Review                           │
+│  Project-level acceptance verification  │
+│  → sprints/final-review.json            │
 └─────────────────────────────────────────┘
 ```
 
@@ -128,6 +133,7 @@ rm /usr/local/bin/chase
 | `chase plan` | Generate sprint plan preview without code changes |
 | `chase approve` | Approve the current plan so `chase run` can modify code |
 | `chase run` | Start the full agent loop (auto-resumes from checkpoint) |
+| `chase run --watchdog` | Auto-restart orchestrator on crash (up to 5× per 60s) |
 | `chase resume` | Alias for `run` |
 | `chase status` | Show sprint progress, scores, and cost |
 | `chase reset` | Clean sprints/handoffs/logs to re-plan |
@@ -218,13 +224,17 @@ Describe what you want to accomplish.
 
 Project background, tech stack, relevant files.
 
-# Acceptance Criteria
+# Acceptance Criteria (MUST)
 
-1. Specific, testable condition
-2. Another condition
+- [ ] Specific, testable condition
+- [ ] Another condition
+
+# Nice to Have
+
+- [ ] Optional enhancement
 ```
 
-The more specific and measurable your acceptance criteria, the better the results.
+The more specific and measurable your acceptance criteria, the better the results. MUST criteria generate high-priority sprints; Nice to Have generates lower-priority ones.
 
 ## Architecture
 
@@ -238,13 +248,68 @@ Each agent runs as a fresh CLI session (`claude -p`, `codex -q`, or `gemini -p` 
 ### Four-Agent Flow
 
 ```
-Planner → Negotiator → Generator ↔ Evaluator
-              ↓              ↑          ↓
-     Precise criteria   Implements   Verifies
-     agreed before       against      against
-     coding starts       negotiated   negotiated
-                          criteria     criteria
+MISSION.md → Planner → Negotiator → Generator ↔ Evaluator
+               ↓            ↓            ↑           ↓
+        Sprint contracts   Precise    Implements   Verifies
+        with risks & deps  criteria   against      against
+                          agreed       negotiated   negotiated
+                          before       criteria     criteria
+                          coding
+                          starts
 ```
+
+### Project Context Injection
+
+All agents automatically receive rich project context — no manual configuration needed:
+
+- **CLAUDE.md** — project instructions, tech stack, conventions
+- **Project structure** — directory tree (excluding noise dirs)
+- **Recent commits** — last 15 commits for current state awareness
+- **Project config** — pyproject.toml / package.json for dependency info
+
+This means the Planner understands your codebase before planning, the Generator follows your project's conventions, and the Evaluator knows what "correct" looks like.
+
+### Generator Checkpoint & Rollback
+
+Before each Generator run, Chase creates a git checkpoint. If the Generator fails or produces low-quality output, the working tree is rolled back to a clean state before the next retry. No half-finished code accumulates.
+
+### Watchdog Mode
+
+```bash
+chase run --watchdog
+```
+
+The watchdog supervisor monitors the orchestrator process. If it crashes (OOM, network interruption, machine sleep), it auto-restarts within 5 seconds. Stops after 5 consecutive crashes in 60 seconds.
+
+### Adaptive Re-planning
+
+When sprints keep failing, Chase adapts instead of giving up:
+
+- **3 consecutive failures** → triggers automatic re-planning (removes failed contracts, re-runs Planner with progress context)
+- **Stale detection** → triggers re-plan instead of stopping
+- **Topological sort** → sprints execute in dependency order (respects `depends_on`)
+
+### Final Review
+
+After all sprints complete, Chase runs a project-level final review that:
+
+1. Verifies each MISSION.md acceptance criterion is met
+2. Runs the full test suite and lint
+3. Checks for TODO/FIXME/HACK comments
+4. Outputs a `final-review.json` with overall verdict and mission coverage score
+
+### Structured MISSION.md
+
+The `chase init` template now includes structured sections:
+
+```markdown
+# Acceptance Criteria (MUST)     → high priority sprints
+# Nice to Have                    → low priority sprints
+# Performance Requirements        → performance verification sprint
+# UI Requirements                 → UI verification sprint
+```
+
+The Planner maps each section to appropriately prioritized sprints.
 
 ### Contract Negotiation
 
@@ -267,10 +332,15 @@ When a sprint involves frontend work, the Evaluator adds a `design_score` (0-1) 
 - **Pure Python, zero pip dependencies** — only stdlib (dataclass, json, subprocess, argparse)
 - **Multi-CLI support** — works with Claude Code, Codex CLI, and Gemini CLI
 - **Four-agent pattern** — Planner, Negotiator, Generator, Evaluator work independently
+- **Project context injection** — all agents auto-receive CLAUDE.md, project structure, recent commits
 - **Contract negotiation** — criteria refined before coding, not after failing
+- **Checkpoint & rollback** — clean state guaranteed on every Generator retry
+- **Adaptive re-planning** — auto-replans when sprints keep failing
+- **Watchdog mode** — auto-restarts crashed orchestrator
+- **Final review** — project-level acceptance verification after all sprints
 - **Cost tracking** — real-time budget monitoring per sprint and total
 - **Resume from interruption** — picks up from the last completed sprint
-- **Multi-project** — one installation serves all your projects
+- **Multi-project** — Ray mode with resource conflict detection and cross-project artifact passing
 - **Playwright + design scoring** — browser-based UI testing with visual quality evaluation
 - **Computer Use (CDP)** — zero-dependency browser automation via Chrome DevTools Protocol
 

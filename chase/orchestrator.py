@@ -18,6 +18,7 @@ from chase.cost import CostTracker
 from chase.handoff import generate_handoff
 from chase.logging import ChaseLogger
 from chase.state import StateDir
+from chase.subprocess import run_cli_streaming, extract_json_from_text
 from chase.trust import render_verification_card
 
 
@@ -123,12 +124,16 @@ class Orchestrator:
         else:
             self.logger.info(f"Found {len(contracts)} existing sprint contracts, skipping planner")
 
+        # Topological sort based on depends_on
+        contracts = self._topo_sort_contracts(contracts)
+
         # Record base branch for sprint isolation
         base_branch = self._get_current_branch()
 
         # Phase 2 & 3: Sprint loop
         stale_count = 0
         prev_head = self._git_head()
+        consecutive_failures = 0
 
         for contract_path in contracts:
             sprint_id = self._extract_sprint_id(contract_path)
@@ -199,12 +204,19 @@ class Orchestrator:
             max_errors = 2  # Framework-level errors: skip after 2 consecutive
             passed = False
 
+            # Create checkpoint before first Generator run
+            self._create_checkpoint(sprint_id)
+
             # Check for eval-only retry (result exists, no eval)
             result_path = self.state.sprint_result(sprint_id)
             eval_only = result_path.exists() and result_path.stat().st_size > 0 and not eval_path.exists()
 
             while retry_count < self.config.max_retries:
                 if not eval_only:
+                    # Rollback to clean state before each generator attempt
+                    if retry_count > 0:
+                        self._rollback_to_checkpoint(sprint_id)
+
                     # Generator
                     feedback = ""
                     if retry_count > 0 and eval_path.exists():
@@ -218,6 +230,8 @@ class Orchestrator:
                     if not gen_result.success:
                         self.logger.error(f"Sprint {sprint_id} generator failed")
                         self._update_sprint_agent(sprint_id, "Generator", "failed", "generator produced no output")
+                        # Rollback failed generator changes
+                        self._rollback_to_checkpoint(sprint_id)
                         error_count += 1
                         retry_count += 1
                         if error_count >= max_errors:
@@ -272,7 +286,7 @@ class Orchestrator:
                     self._update_sprint_agent(sprint_id, "Evaluator", "success")
                     break
                 else:
-                    # Legitimate FAIL (not ERROR) — reset error count, allow retries
+                    # Legitimate FAIL (not ERROR) — rollback for clean retry
                     error_count = 0
                     retry_count += 1
                     feedback = eval_result.parsed_data.get("feedback", "score below threshold")
@@ -286,6 +300,7 @@ class Orchestrator:
 
             if passed:
                 self._update_sprint_status(sprint_id, "success")
+                consecutive_failures = 0
                 # Merge sprint branch back to base
                 merged = self._merge_sprint_branch(sprint_id, base_branch)
                 if not merged:
@@ -294,10 +309,21 @@ class Orchestrator:
                         f"Branch {current_sprint_branch} preserved for manual merge."
                     )
             else:
+                consecutive_failures += 1
                 self._update_sprint_status(sprint_id, "failed",
                     self._get_last_error(sprint_id) or "retries exhausted")
                 # Checkout base branch, leave sprint branch for review
                 self._checkout_branch(base_branch)
+
+                # Adaptive: consecutive failures trigger re-planning
+                if consecutive_failures >= 3:
+                    self.logger.warning(
+                        f"{consecutive_failures} consecutive sprint failures — triggering re-plan"
+                    )
+                    # Clear old contracts and re-plan
+                    self._replan_from_failure(consecutive_failures)
+                    # Reload contracts
+                    contracts = self._topo_sort_contracts(self.state.existing_contracts())
 
             # Stale detection: check git HEAD or uncommitted changes
             current_head = self._git_head()
@@ -306,9 +332,10 @@ class Orchestrator:
                 stale_count += 1
                 self.logger.info(f"Stale count: {stale_count}/{self.config.stale_limit}")
                 if stale_count >= self.config.stale_limit:
-                    self.logger.error(f"Consecutive {self.config.stale_limit} sprints with no progress, stopping")
-                    generate_handoff(self.state, self.config, self.cost, sprint_id, "stale")
-                    return 1
+                    self.logger.warning(f"Consecutive {self.config.stale_limit} sprints with no progress, triggering re-plan")
+                    self._replan_from_failure(stale_count)
+                    contracts = self._topo_sort_contracts(self.state.existing_contracts())
+                    stale_count = 0
             else:
                 stale_count = 0
                 prev_head = current_head
@@ -325,6 +352,10 @@ class Orchestrator:
         self.logger.info(f"Results: {passed_count} passed, {failed_count} failed")
         self.logger.info(f"Total cost: ${self.cost.total_cost:.4f}")
 
+        # Phase 5: Final Review — project-level acceptance verification
+        if passed_count > 0:
+            self._run_final_review(passed_count, failed_count)
+
         generate_handoff(self.state, self.config, self.cost, len(contracts), "completed")
         self.logger.info("Chase complete")
         return 0
@@ -333,6 +364,204 @@ class Orchestrator:
         if design_score is not None:
             return round(score * 0.7 + design_score * 0.3, 2)
         return score
+
+    def _run_final_review(self, passed: int, failed: int) -> None:
+        """Phase 5: Final project-level review.
+
+        Runs a full verification pass: complete test suite, lint,
+        and checks MISSION.md acceptance criteria are met.
+        """
+        self.logger.info("=" * 40)
+        self.logger.info("Phase 5: Final Review")
+        self.logger.info("=" * 40)
+
+        mission = self.state.read_mission()
+        project_ctx = self.planner.build_project_context()
+
+        # Gather sprint summaries
+        sprint_summaries = []
+        for eval_path in self.state.existing_evals():
+            try:
+                data = json.loads(eval_path.read_text())
+                sid = eval_path.stem.split("-")[0]
+                sprint_summaries.append(
+                    f"Sprint {sid}: verdict={data.get('verdict')}, score={data.get('score')}"
+                )
+            except Exception:
+                pass
+
+        review_prompt = f"""You are a senior tech lead performing a final project review.
+
+## MISSION (Original Goal)
+{mission}
+
+## Sprint Results
+{chr(10).join(sprint_summaries)}
+
+Summary: {passed} passed, {failed} failed
+
+{project_ctx}
+
+## Your Task
+
+Perform a final review of the project:
+
+1. Read MISSION.md and verify each acceptance criterion is met
+2. Run the full test suite: `pytest` or equivalent
+3. Run lint: `ruff check .` or equivalent
+4. Check for any TODO/FIXME/HACK comments in new code
+5. Verify no broken imports or missing files
+6. If there's a web app, check it starts without errors
+
+Output a JSON object:
+```json
+{{
+  "overall_verdict": "COMPLETE" | "PARTIAL" | "INCOMPLETE",
+  "mission_coverage": 0.0-1.0,
+  "criteria_met": ["criterion that was met"],
+  "criteria_missing": ["criterion that was NOT met"],
+  "test_results": "pass/fail summary",
+  "issues_found": ["any remaining issues"],
+  "recommendation": "one-line recommendation"
+}}
+```
+
+Only output JSON, no other text."""
+
+        result = run_cli_streaming(
+            review_prompt,
+            cli=self.config.cli,
+            max_turns=8,
+            allowed_tools=["Read", "Bash", "Glob", "Grep"],
+            model=self.config.get_model("evaluator"),
+            env=self.config.get_agent_env("evaluator"),
+            cwd=str(self.config.workspace),
+            timeout=300,
+            label="FinalReview",
+        )
+
+        self.cost.track(result.cost, "final", "review")
+
+        # Save review report
+        review_path = self.state.sprints / "final-review.json"
+        review_json = extract_json_from_text(result.result_text)
+        if review_json:
+            review_path.write_text(json.dumps(review_json, ensure_ascii=False, indent=2) + "\n")
+            verdict = review_json.get("overall_verdict", "?")
+            coverage = review_json.get("mission_coverage", "?")
+            self.logger.info(f"Final Review: {verdict}, mission coverage: {coverage}")
+
+            missing = review_json.get("criteria_missing", [])
+            if missing:
+                self.logger.warning(f"Unmet criteria: {', '.join(str(c) for c in missing[:5])}")
+
+            issues = review_json.get("issues_found", [])
+            if issues:
+                for issue in issues[:5]:
+                    self.logger.warning(f"  Issue: {issue}")
+        else:
+            # Save raw text as fallback
+            review_path.write_text(result.result_text or "No output")
+            self.logger.warning("Final Review: could not parse JSON output, saved raw text")
+
+    def _topo_sort_contracts(self, contracts: list) -> list:
+        """Sort contracts respecting depends_on via topological sort (Kahn's algorithm).
+
+        Falls back to original (filesystem) order if no depends_on found or cycle detected.
+        """
+        if not contracts:
+            return contracts
+
+        # Parse contract data
+        contract_map: dict[int, tuple[Path, set[int]]] = {}
+        for c in contracts:
+            sid = self._extract_sprint_id(c)
+            try:
+                data = json.loads(c.read_text())
+                deps = set()
+                raw_deps = data.get("depends_on", [])
+                if isinstance(raw_deps, list):
+                    for d in raw_deps:
+                        if isinstance(d, int):
+                            deps.add(d)
+                        elif isinstance(d, str) and d.isdigit():
+                            deps.add(int(d))
+                contract_map[sid] = (c, deps)
+            except Exception:
+                contract_map[sid] = (c, set())
+
+        # Check if any contract actually has depends_on
+        has_deps = any(bool(deps) for _, deps in contract_map.values())
+        if not has_deps:
+            return contracts  # No dependencies — keep original order
+
+        # Kahn's algorithm
+        in_degree: dict[int, int] = {sid: 0 for sid in contract_map}
+        adj: dict[int, list[int]] = {sid: [] for sid in contract_map}
+        for sid, (_, deps) in contract_map.items():
+            for dep in deps:
+                if dep in contract_map:
+                    adj[dep].append(sid)
+                    in_degree[sid] += 1
+
+        queue = [sid for sid, deg in in_degree.items() if deg == 0]
+        queue.sort()  # Deterministic order among same-level items
+        result = []
+
+        while queue:
+            sid = queue.pop(0)
+            result.append(contract_map[sid][0])
+            for neighbor in adj[sid]:
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+            queue.sort()
+
+        # Cycle detection: if not all processed, fall back to original order
+        if len(result) != len(contracts):
+            self.logger.warning("Dependency cycle detected, falling back to filesystem order")
+            return contracts
+
+        return result
+
+    def _replan_from_failure(self, reason_count: int) -> None:
+        """Trigger re-planning when sprints keep failing.
+
+        Removes failed sprint contracts and re-runs the Planner.
+        Keeps passed contracts intact.
+        """
+        self.logger.info(f"Re-planning due to {reason_count} failures...")
+
+        # Remove failed/unprocessed contracts (keep passed ones)
+        removed = 0
+        for contract_path in self.state.existing_contracts():
+            sid = self._extract_sprint_id(contract_path)
+            eval_path = self.state.sprint_eval(sid)
+            if eval_path.exists():
+                try:
+                    data = json.loads(eval_path.read_text())
+                    if data.get("verdict") == "PASS":
+                        continue  # Keep passed contracts
+                except Exception:
+                    pass
+            # Remove failed/pending contract and related files
+            contract_path.unlink(missing_ok=True)
+            for suffix in ("negotiated", "result", "eval", "verification", "state", "skip"):
+                path = self.state.sprints / f"{sid:02d}-{suffix}.md"
+                if suffix in ("eval", "state", "skip"):
+                    path = self.state.sprints / f"{sid:02d}-{suffix}.json"
+                path.unlink(missing_ok=True)
+            removed += 1
+
+        self.logger.info(f"Removed {removed} failed/pending contracts, re-running Planner")
+
+        # Re-run planner (it will see remaining passed sprints and plan around them)
+        result = self.planner.run(self.cost, self.logger)
+        if result.success:
+            new_count = len(self.state.existing_contracts())
+            self.logger.info(f"Re-planning complete: {new_count} total sprints")
+        else:
+            self.logger.error("Re-planning failed — continuing with remaining contracts")
 
     def _approval_granted(self) -> bool:
         if not self.config.require_approval:
@@ -468,6 +697,77 @@ class Orchestrator:
             pass
 
     # --- Sprint branch management ---
+
+    def _create_checkpoint(self, sprint_id: int) -> str | None:
+        """Create a checkpoint commit before Generator runs.
+
+        Stashes any uncommitted changes and creates a checkpoint ref
+        so we can reset on failure. Returns the checkpoint SHA or None.
+        """
+        try:
+            # Stash uncommitted changes (if any)
+            status_proc = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True, text=True, timeout=5,
+                cwd=str(self.config.workspace),
+            )
+            has_changes = bool(status_proc.stdout.strip())
+
+            if has_changes:
+                subprocess.run(
+                    ["git", "add", "-A"],
+                    capture_output=True, text=True, timeout=10,
+                    cwd=str(self.config.workspace),
+                )
+                subprocess.run(
+                    ["git", "commit", "-m", f"chase: checkpoint before sprint {sprint_id}"],
+                    capture_output=True, text=True, timeout=10,
+                    cwd=str(self.config.workspace),
+                )
+
+            # Record the HEAD SHA as checkpoint
+            proc = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=5,
+                cwd=str(self.config.workspace),
+            )
+            sha = proc.stdout.strip()
+
+            # Save checkpoint SHA to state
+            sprint_state = self._read_sprint_state(sprint_id)
+            sprint_state["checkpoint_sha"] = sha
+            self._write_sprint_state(sprint_id, sprint_state)
+
+            self.logger.sprint(sprint_id, "checkpoint", f"Checkpoint at {sha[:8]}")
+            return sha
+        except Exception as e:
+            self.logger.warning(f"Failed to create checkpoint: {e}")
+            return None
+
+    def _rollback_to_checkpoint(self, sprint_id: int) -> bool:
+        """Reset working tree to the checkpoint commit. Returns True on success."""
+        sprint_state = self._read_sprint_state(sprint_id)
+        sha = sprint_state.get("checkpoint_sha")
+        if not sha:
+            self.logger.warning(f"No checkpoint found for sprint {sprint_id}")
+            return False
+
+        try:
+            subprocess.run(
+                ["git", "reset", "--hard", sha],
+                capture_output=True, text=True, timeout=10,
+                cwd=str(self.config.workspace),
+            )
+            subprocess.run(
+                ["git", "clean", "-fd", "--exclude=.chase"],
+                capture_output=True, text=True, timeout=10,
+                cwd=str(self.config.workspace),
+            )
+            self.logger.sprint(sprint_id, "rollback", f"Rolled back to checkpoint {sha[:8]}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Rollback failed for sprint {sprint_id}: {e}")
+            return False
 
     def _get_current_branch(self) -> str:
         """Get current git branch name."""

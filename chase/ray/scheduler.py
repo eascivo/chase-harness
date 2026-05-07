@@ -89,17 +89,42 @@ class Scheduler:
         if slots <= 0:
             return []
 
+        # Collect ports/services used by currently running projects
+        used_ports: set[int] = set()
+        for p in self.config.projects:
+            if p.status in (STATUS_RUNNING, STATUS_PLANNING):
+                used_ports.update(p.ports)
+
         candidates: list[Project] = []
         for p in self.config.projects:
             if p.status != STATUS_PENDING:
                 continue
             if not self._deps_met(p, completed):
                 continue
+            # Resource conflict check: reject if port already in use
+            if any(port in used_ports for port in p.ports):
+                continue
             candidates.append(p)
+            # Reserve ports for this candidate
+            used_ports.update(p.ports)
 
         # 按优先级排序（数字越小越优先）
         candidates.sort(key=lambda p: p.priority)
         return candidates[:slots]
+
+    def check_conflicts(self) -> list[str]:
+        """Check for resource conflicts across all projects. Returns list of warnings."""
+        warnings: list[str] = []
+        port_owners: dict[int, str] = {}
+        for p in self.config.projects:
+            for port in p.ports:
+                if port in port_owners:
+                    warnings.append(
+                        f"Port conflict: '{p.name}' and '{port_owners[port]}' both declare port {port}"
+                    )
+                else:
+                    port_owners[port] = p.name
+        return warnings
 
     def update_blocked(self) -> None:
         """将依赖未满足的 pending 项目标记为 blocked。"""

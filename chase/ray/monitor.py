@@ -72,6 +72,9 @@ class Monitor:
             project.status = STATUS_FAILED
             return False
 
+        # Inject artifacts from completed dependencies into NOTES.md
+        self._inject_dependency_artifacts(project, workspace)
+
         log_file = self.state.log_dir / f"{project.name}.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -199,3 +202,66 @@ class Monitor:
 
     def active_count(self) -> int:
         return len(self.slots)
+
+    def _inject_dependency_artifacts(self, project: Project, workspace: Path) -> None:
+        """Inject key outputs from completed dependencies into this project's NOTES.md.
+
+        Reads the final-review.json and latest handoff from dependency projects
+        and appends them to the current project's NOTES.md so the Planner and
+        Generator have cross-project context.
+        """
+        if not project.depends_on:
+            return
+
+        notes_path = workspace / "NOTES.md"
+        notes = ""
+        if notes_path.exists():
+            notes = notes_path.read_text()
+
+        # Load queue to find dependency project paths
+        try:
+            config = self.state.load_queue()
+        except Exception:
+            return
+
+        dep_map = {p.name: p for p in config.projects}
+        injection_lines = []
+
+        for dep_name in project.depends_on:
+            dep = dep_map.get(dep_name)
+            if not dep or dep.status != STATUS_COMPLETED:
+                continue
+
+            dep_workspace = Path(dep.path).expanduser().resolve()
+            dep_chase = dep_workspace / ".chase"
+
+            # Read final review if exists
+            final_review = dep_chase / "sprints" / "final-review.json"
+            if final_review.exists():
+                try:
+                    data = json.loads(final_review.read_text())
+                    verdict = data.get("overall_verdict", "?")
+                    coverage = data.get("mission_coverage", "?")
+                    injection_lines.append(
+                        f"\n## Dependency: {dep_name} (verdict={verdict}, coverage={coverage})"
+                    )
+                    for criterion in data.get("criteria_met", [])[:5]:
+                        injection_lines.append(f"- [met] {criterion}")
+                except Exception:
+                    pass
+
+            # Read latest handoff for context
+            handoff_dir = dep_chase / "handoffs"
+            if handoff_dir.is_dir():
+                handoffs = sorted(handoff_dir.glob("*.md"), reverse=True)
+                if handoffs:
+                    try:
+                        content = handoffs[0].read_text()[:1000]
+                        injection_lines.append(f"\n### {dep_name} latest handoff (summary)\n{content}")
+                    except Exception:
+                        pass
+
+        if injection_lines:
+            block = f"\n\n---\n## Cross-project context (auto-injected by Ray)\n{''.join(injection_lines)}\n"
+            notes_path.write_text(notes + block, encoding="utf-8")
+            self.logger.info(f"Injected dependency artifacts into {project.name}/NOTES.md")

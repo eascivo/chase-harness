@@ -11,14 +11,14 @@ MISSION.md（你的目标）
       ↓
 ┌─────────────────────────────────────────┐
 │  Planner                                │
-│  将目标拆解为 sprint 合约列表            │
+│  分析项目 + 拆解目标为 sprint 合约       │
 │  → sprints/01-contract.md               │
 ├─────────────────────────────────────────┤
 │  Negotiator（逐 sprint）                │
 │  精炼合约为具体、可测量的验收清单         │
 │  → sprints/01-negotiated.md             │
 ├─────────────────────────────────────────┤
-│  Generator                              │
+│  Generator（含检查点/回滚）              │
 │  按协商后的清单实现功能                   │
 │  → git commit → sprints/01-result.md    │
 ├─────────────────────────────────────────┤
@@ -26,6 +26,11 @@ MISSION.md（你的目标）
 │  按协商后的清单独立验收                   │
 │  → sprints/01-eval.json                 │
 │  分数 < 0.7？→ 重试（最多 10 次）         │
+│  连续 3 次停滞？→ 重新规划               │
+├─────────────────────────────────────────┤
+│  Final Review                           │
+│  项目级最终验收                          │
+│  → sprints/final-review.json            │
 └─────────────────────────────────────────┘
 ```
 
@@ -119,6 +124,7 @@ rm /usr/local/bin/chase
 | `chase plan` | 生成 sprint 计划预览，不改代码 |
 | `chase approve` | 审批当前计划，允许 `chase run` 修改代码 |
 | `chase run` | 启动四 Agent 循环（自动从断点恢复） |
+| `chase run --watchdog` | 崩溃自动重启（60s 内最多 5 次） |
 | `chase resume` | `run` 的别名 |
 | `chase status` | 显示 sprint 进度、评分和成本 |
 | `chase reset` | 清理 sprints/handoffs/logs，重新规划 |
@@ -209,13 +215,17 @@ rm /usr/local/bin/chase
 
 项目背景、技术栈、相关文件。
 
-# 验收标准
+# 验收标准 (MUST)
 
-1. 具体、可测试的条件
-2. 另一个条件
+- [ ] 具体、可测试的条件
+- [ ] 另一个条件
+
+# Nice to Have
+
+- [ ] 可选增强
 ```
 
-验收标准越具体、越可测量，效果越好。
+验收标准越具体、越可测量，效果越好。MUST 条件生成高优先级 sprint，Nice to Have 生成低优先级 sprint。
 
 ## 架构
 
@@ -229,11 +239,64 @@ rm /usr/local/bin/chase
 ### 四 Agent 流程
 
 ```
-Planner → Negotiator → Generator ↔ Evaluator
-              ↓              ↑          ↓
-        精确验收清单       按清单实现   按清单验收
-        先协商再编码
+MISSION.md → Planner → Negotiator → Generator ↔ Evaluator
+               ↓            ↓            ↑           ↓
+        Sprint 合约       精确验收     按清单实现   按清单验收
+        含风险和依赖       先协商再编码
 ```
+
+### 项目上下文注入
+
+所有 Agent 自动获得丰富的项目上下文，无需手动配置：
+
+- **CLAUDE.md** — 项目指令、技术栈、编码规范
+- **项目结构** — 目录树（自动排除 .git/.venv/node_modules 等）
+- **最近提交** — 最近 15 个 commit，了解当前状态
+- **项目配置** — pyproject.toml / package.json 依赖信息
+
+这意味着 Planner 在规划前就理解你的代码库，Generator 遵循你的项目规范，Evaluator 知道"正确"应该是什么样子。
+
+### Generator 检查点与回滚
+
+每次 Generator 运行前，Chase 会创建一个 git 检查点。如果 Generator 失败或产出质量不达标，工作树会回滚到干净状态再重试，不会积累半成品代码。
+
+### Watchdog 模式
+
+```bash
+chase run --watchdog
+```
+
+看门狗监控 orchestrator 进程，崩溃（OOM、网络中断、机器休眠）后 5 秒内自动重启。60 秒内连续崩溃 5 次则停止。
+
+### 自适应重新规划
+
+Sprint 持续失败时，Chase 会自适应而不是放弃：
+
+- **连续 3 次失败** → 自动触发重新规划（移除失败合约，带进度上下文重跑 Planner）
+- **停滞检测** → 触发重新规划而非停止
+- **拓扑排序** → 按 depends_on 依赖顺序执行 sprint
+
+### 项目级终验
+
+所有 sprint 完成后，Chase 运行项目级终验：
+
+1. 逐条验证 MISSION.md 验收标准
+2. 跑完整测试套件和 lint
+3. 检查 TODO/FIXME/HACK 注释
+4. 输出 `final-review.json`，包含总体结论和任务覆盖率评分
+
+### 结构化 MISSION.md
+
+`chase init` 模板现在包含结构化章节：
+
+```markdown
+# Acceptance Criteria (MUST)     → 高优先级 sprint
+# Nice to Have                    → 低优先级 sprint
+# Performance Requirements        → 性能验证 sprint
+# UI Requirements                 → UI 验证 sprint
+```
+
+Planner 会将每个章节映射到相应优先级的 sprint。
 
 ### 合约协商（Contract Negotiation）
 
@@ -256,10 +319,15 @@ Generator 写代码之前，Negotiator 先把每个 sprint 合约精炼为具体
 - **纯 Python，零 pip 依赖** — 仅用 stdlib（dataclass、json、subprocess、argparse）
 - **多 CLI 支持** — 支持 Claude Code、Codex CLI、Gemini CLI
 - **四 Agent 模式** — Planner、Negotiator、Generator、Evaluator 独立工作
+- **项目上下文注入** — 所有 Agent 自动获得 CLAUDE.md、项目结构、最近提交
 - **合约协商** — 编码前精炼验收标准，不是失败后才补
+- **检查点与回滚** — 每次 Generator 重试保证从干净状态开始
+- **自适应重新规划** — Sprint 持续失败时自动重新规划
+- **Watchdog 模式** — 崩溃后自动重启 orchestrator
+- **项目级终验** — 所有 sprint 完成后对照 MISSION.md 做最终验收
 - **成本追踪** — 实时监控每个 sprint 和总预算消耗
 - **断点恢复** — 从上次完成的 sprint 继续
-- **多项目复用** — 一份安装服务所有项目
+- **多项目编排** — Ray 模式支持资源冲突检测和跨项目 artifact 传递
 - **Playwright + 设计评分** — 浏览器自动化测试 + 视觉质量评估
 - **Computer Use（CDP）** — 零依赖浏览器自动化，通过 Chrome DevTools Protocol 实现
 
