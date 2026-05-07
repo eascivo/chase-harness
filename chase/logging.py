@@ -30,4 +30,13 @@ class ChaseLogger:
         self._emit("ERROR", msg)
 
     def sprint(self, sprint_id: int, phase: str, msg: str) -> None:
-        self.info(f"[Sprint {sprint_id}/{phase}] {msg}")
+        line = f"[Sprint {sprint_id}/{phase}] {msg}"
+        self.info(line)
+        # Also write to sprint-specific log file
+        sprint_log = self._log_dir / f"sprint-{sprint_id}.log"
+        ts = datetime.now().strftime("%H:%M:%S")
+        try:
+            with open(sprint_log, "a") as f:
+                f.write(f"[{ts}] INFO: {line}\n")
+        except OSError:
+            pass

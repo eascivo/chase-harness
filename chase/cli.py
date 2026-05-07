@@ -261,6 +261,17 @@ def _cmd_status_render(ws, state) -> int:
         risk = estimate_contract_risk(contract)
 
         eval_path = state.sprint_eval(sid)
+        sprint_state_path = state.sprint_state(sid)
+        sprint_state = {}
+        if sprint_state_path.exists():
+            try:
+                sprint_state = json.loads(sprint_state_path.read_text())
+            except Exception:
+                pass
+
+        branch = sprint_state.get("branch", "")
+        branch_info = f"  branch: {branch}" if branch else ""
+
         if eval_path.exists():
             try:
                 eval_data = json.loads(eval_path.read_text())
@@ -277,14 +288,34 @@ def _cmd_status_render(ws, state) -> int:
                 card_path = state.sprint_verification_card(sid)
                 if card_path.exists():
                     print(f"          evidence: {card_path}")
+                if branch_info:
+                    print(f"  {branch_info}")
             except Exception:
                 pend_count += 1
                 print(f"  [----]  Sprint {sid}: {title}")
                 print(f"          risk: {risk}")
+                if branch_info:
+                    print(f"  {branch_info}")
         else:
             pend_count += 1
-            print(f"  [----]  Sprint {sid}: {title}")
+            status_str = sprint_state.get("status", "")
+            status_info = f" | status: {status_str}" if status_str else ""
+            last_error = sprint_state.get("last_error", "")
+            error_info = f" | error: {last_error}" if last_error else ""
+
+            print(f"  [----]  Sprint {sid}: {title}{status_info}{error_info}")
             print(f"          risk: {risk}")
+            if branch_info:
+                print(f"  {branch_info}")
+
+            # Show agent chain
+            agent_chain = sprint_state.get("agent_chain", [])
+            if agent_chain:
+                chain_str = " → ".join(
+                    f"{a['agent']} {_status_icon(a['status'])}"
+                    for a in agent_chain
+                )
+                print(f"          chain: {chain_str}")
 
     if sprint_count == 0:
         print("  (no sprints yet — run 'chase run' to start)")
@@ -301,6 +332,17 @@ def _cmd_status_render(ws, state) -> int:
             print(f"  {line}")
 
     return 0
+
+
+def _status_icon(status: str) -> str:
+    """Return a status icon for agent chain display."""
+    if status == "success":
+        return "\u2713"
+    elif status == "failed":
+        return "\u2717"
+    elif status == "running":
+        return "..."
+    return "?"
 
 
 def _cmd_status_watch(ws, state) -> int:
@@ -460,6 +502,57 @@ def cmd_logs(args) -> int:
     ws = resolve_workspace(args.workspace)
     state = StateDir.for_workspace(ws)
 
+    # If sprint_id is given, show sprint-specific log
+    sprint_id = getattr(args, "sprint_id", None)
+    if sprint_id is not None:
+        sprint_log = state.logs / f"sprint-{sprint_id}.log"
+        if sprint_log.exists():
+            lines = sprint_log.read_text().splitlines()
+            tail = getattr(args, "tail", 20)
+            show_all = getattr(args, "all", False)
+            if not show_all:
+                lines = lines[-tail:]
+            for line in lines:
+                if "ERROR" in line:
+                    print_red(line)
+                elif "WARNING" in line or "WARN" in line:
+                    print_yellow(line)
+                elif "PASSED" in line or "PASS" in line:
+                    print_green(line)
+                else:
+                    print(line)
+        else:
+            print_yellow(f"No sprint log found for sprint {sprint_id}.")
+            # Fallback: filter daily logs by sprint
+            log_dir = state.logs
+            if log_dir.is_dir():
+                log_files = sorted(log_dir.glob("*.log"))
+                all_lines: list[str] = []
+                for lf in log_files:
+                    try:
+                        all_lines.extend(lf.read_text().splitlines())
+                    except OSError:
+                        pass
+                pattern = _re.compile(rf"\[Sprint {sprint_id}/")
+                matching = [l for l in all_lines if pattern.search(l)]
+                if matching:
+                    print_yellow(f"Showing daily log entries for sprint {sprint_id}:")
+                    tail = getattr(args, "tail", 20)
+                    show_all = getattr(args, "all", False)
+                    if not show_all:
+                        matching = matching[-tail:]
+                    for line in matching:
+                        if "ERROR" in line:
+                            print_red(line)
+                        elif "WARNING" in line or "WARN" in line:
+                            print_yellow(line)
+                        else:
+                            print(line)
+                else:
+                    print_yellow(f"No log entries found for sprint {sprint_id}.")
+        return 0
+
+    # Original daily log behavior
     log_dir = state.logs
     if not log_dir.is_dir():
         print_yellow("No logs directory found. Run 'chase run' first.")
@@ -520,11 +613,25 @@ def cmd_logs(args) -> int:
 
 
 def cmd_retry(args) -> int:
-    """Retry a specific sprint by clearing its eval and result."""
+    """Retry a specific sprint from its breakpoint.
+
+    If sprint_id is not given, retry the last failed sprint.
+    If evaluator failed: only re-run evaluator (keep generator result).
+    If generator failed: re-run both generator and evaluator.
+    """
     ws = resolve_workspace(args.workspace)
     state = StateDir.for_workspace(ws)
 
-    sprint_id = args.sprint_id
+    sprint_id = getattr(args, "sprint_id", None)
+
+    # Auto-detect last failed sprint
+    if sprint_id is None:
+        sprint_id = _find_last_failed_sprint(state)
+        if sprint_id is None:
+            print_yellow("No failed sprints found to retry.")
+            return 1
+        print(f"Retrying last failed sprint: {sprint_id}")
+
     eval_path = state.sprint_eval(sprint_id)
     result_path = state.sprint_result(sprint_id)
 
@@ -532,19 +639,99 @@ def cmd_retry(args) -> int:
         print_red(f"Sprint {sprint_id} contract not found.")
         return 1
 
+    # Determine retry mode from sprint state
+    sprint_state_path = state.sprint_state(sprint_id)
+    retry_mode = "full"  # Default: re-run both generator and evaluator
+    last_agent = None
+
+    if sprint_state_path.exists():
+        try:
+            sprint_state = json.loads(sprint_state_path.read_text())
+            agent_chain = sprint_state.get("agent_chain", [])
+            # Find the last failed agent
+            for entry in reversed(agent_chain):
+                if entry.get("status") == "failed":
+                    last_agent = entry.get("agent")
+                    break
+
+            if last_agent == "Evaluator" and result_path.exists() and result_path.stat().st_size > 0:
+                retry_mode = "eval_only"
+        except Exception:
+            pass
+
+    # Also check eval directly
+    if eval_path.exists():
+        try:
+            eval_data = json.loads(eval_path.read_text())
+            verdict = eval_data.get("verdict", "")
+            if verdict == "FAIL" and result_path.exists() and result_path.stat().st_size > 0:
+                retry_mode = "eval_only"
+        except Exception:
+            pass
+
     removed = []
     if eval_path.exists():
         eval_path.unlink()
         removed.append("eval")
-    if result_path.exists():
-        result_path.unlink()
-        removed.append("result")
+
+    if retry_mode != "eval_only":
+        if result_path.exists():
+            result_path.unlink()
+            removed.append("result")
+    else:
+        removed.append("(keeping result for eval-only retry)")
+
+    # Checkout sprint branch if it exists
+    branch = f"chase/sprint-{sprint_id}"
+    try:
+        subprocess.run(
+            ["git", "rev-parse", "--verify", branch],
+            capture_output=True, text=True, timeout=5, check=True,
+            cwd=str(ws),
+        )
+        subprocess.run(
+            ["git", "checkout", branch],
+            capture_output=True, text=True, timeout=10,
+            cwd=str(ws),
+        )
+        print(f"Switched to branch: {branch}")
+    except Exception:
+        pass  # Branch doesn't exist yet, will be created by orchestrator
 
     if removed:
-        print_green(f"Sprint {sprint_id}: removed {', '.join(removed)}. Run 'chase run' to retry.")
+        if retry_mode == "eval_only":
+            print_green(f"Sprint {sprint_id}: eval-only retry (keeping generator result). Run 'chase run' to continue.")
+        else:
+            print_green(f"Sprint {sprint_id}: removed {', '.join(removed)}. Run 'chase run' to retry.")
     else:
         print_yellow(f"Sprint {sprint_id}: no eval/result to clear (not yet run).")
     return 0
+
+
+def _find_last_failed_sprint(state: StateDir) -> int | None:
+    """Find the last failed sprint ID. Returns None if no failures."""
+    contracts = state.existing_contracts()
+    for contract_path in reversed(contracts):
+        sid = int(contract_path.stem.split("-")[0])
+        eval_path = state.sprint_eval(sid)
+        if eval_path.exists():
+            try:
+                eval_data = json.loads(eval_path.read_text())
+                if eval_data.get("verdict") != "PASS":
+                    return sid
+            except Exception:
+                return sid
+        else:
+            # Has contract but no eval — might have been interrupted
+            sprint_state_path = state.sprint_state(sid)
+            if sprint_state_path.exists():
+                try:
+                    sprint_state = json.loads(sprint_state_path.read_text())
+                    if sprint_state.get("status") == "failed":
+                        return sid
+                except Exception:
+                    pass
+    return None
 
 
 def cmd_skip(args) -> int:
@@ -576,10 +763,10 @@ def main() -> int:
         "approve": "Approve a plan for execution",
         "run": "Execute the full plan (plan → approve → sprints)",
         "resume": "Alias for run; resumes from existing sprint state",
-        "status": "Show sprint progress and costs",
+        "status": "Show sprint progress, branches, and costs",
         "reset": "Delete all sprint state and start fresh",
         "doctor": "Diagnose common setup issues",
-        "retry": "Clear eval/result for a sprint and allow re-run",
+        "retry": "Retry a failed sprint from its breakpoint",
         "skip": "Mark a sprint as SKIP so orchestrator skips it",
         "logs": "View chase log files",
     }
@@ -599,14 +786,21 @@ def main() -> int:
     p.add_argument("--watch", action="store_true", help="Auto-refresh every 5 seconds")
     p.add_argument("--workspace", default=None)
 
-    # retry and skip take a sprint_id
-    for name in ("retry", "skip"):
-        p = sub.add_parser(name, help=cmd_help[name])
-        p.add_argument("sprint_id", type=int, help="Sprint number to retry/skip")
-        p.add_argument("--workspace", default=None)
+    # retry — sprint_id is optional (auto-detect last failed)
+    p = sub.add_parser("retry", help=cmd_help["retry"])
+    p.add_argument("sprint_id", type=int, nargs="?", default=None,
+                   help="Sprint number to retry (default: last failed)")
+    p.add_argument("--workspace", default=None)
 
-    # logs subcommand
+    # skip takes a sprint_id
+    p = sub.add_parser("skip", help=cmd_help["skip"])
+    p.add_argument("sprint_id", type=int, help="Sprint number to skip")
+    p.add_argument("--workspace", default=None)
+
+    # logs — optional sprint_id positional arg
     p = sub.add_parser("logs", help=cmd_help["logs"])
+    p.add_argument("sprint_id", type=int, nargs="?", default=None,
+                   help="Sprint number to view logs for")
     p.add_argument("--tail", type=int, default=20, help="Show last N lines (default: 20)")
     p.add_argument("--sprint", type=int, default=None, help="Filter by sprint ID")
     p.add_argument("--agent", type=str, default=None, help="Filter by agent name")

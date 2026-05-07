@@ -1,3 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chase"
+version = "2.0.0"
+description = "Multi-agent autonomous development for Claude Code"
+requires-python = ">=3.9"
+license = "MIT"
+
+[project.scripts]
+chase = "chase.cli:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

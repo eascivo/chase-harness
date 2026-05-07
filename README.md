@@ -32,9 +32,16 @@ MISSION.md (your goal)
 ## Quick Start
 
 ```bash
-# Install
-git clone https://github.com/eascivo/chase-harness.git ~/.chase-harness
-ln -sf ~/.chase-harness/bin/chase /usr/local/bin/chase
+# Install (recommended)
+git clone https://github.com/eascivo/chase-harness.git
+cd chase-harness
+pip install -e .
+
+# Or use bin/chase as a fallback (no install needed)
+# ln -sf $(pwd)/bin/chase /usr/local/bin/chase
+
+# Verify setup
+chase doctor
 
 # Use in any project
 cd your-project
@@ -108,6 +115,8 @@ chase ray remove api               # remove project from queue
 ## Uninstall
 
 ```bash
+pip uninstall chase
+# Or if you used the symlink:
 rm /usr/local/bin/chase
 ```
 

@@ -1,5 +1,7 @@
 """Evaluator Agent — verify sprint results."""
 
+from __future__ import annotations
+
 import json
 import logging
 import subprocess
@@ -36,8 +38,12 @@ class EvaluatorAgent(AgentBase):
         result = result_path.read_text()
         eval_prompt = self.read_prompt("evaluator")
 
-        # Get latest git diff
-        git_diff = self._get_git_diff()
+        # --- Deterministic checks (before LLM evaluation) ---
+        deterministic = self._run_deterministic_checks(sprint_id, active_contract)
+        evidence_section = self._format_deterministic_evidence(deterministic)
+
+        # Get full git diff
+        git_diff = self._get_git_diff(sprint_id)
 
         # Build browser evidence section
         browser_section = ""
@@ -136,6 +142,7 @@ You have browser automation tools. For UI-related criteria:
 
         full_prompt = f"""{eval_prompt}
 
+{evidence_section}
 ## Sprint Contract (negotiated)
 {contract}
 
@@ -211,6 +218,20 @@ Strictly evaluate the above sprint. Verify each criterion:
                 ),
             }
 
+        # Cap score if deterministic checks failed
+        if not deterministic.get("all_passed", True):
+            current_score = float(eval_json.get("score", 0))
+            if current_score > 0.5:
+                eval_json["score_capped"] = True
+                eval_json["original_score"] = current_score
+                eval_json["score"] = 0.5
+                eval_json["verdict"] = "FAIL"
+                eval_json.setdefault("feedback", "")
+                eval_json["feedback"] += (
+                    "\n[SYSTEM] Score capped at 0.5 due to deterministic check failures: "
+                    + deterministic.get("fail_summary", "unknown")
+                )
+
         # Write eval file (atomic via tempfile)
         _tmp = eval_path.with_suffix(".tmp")
         _tmp.write_text(json.dumps(eval_json, ensure_ascii=False, indent=2) + "\n")
@@ -222,8 +243,241 @@ Strictly evaluate the above sprint. Verify each criterion:
 
         return AgentResult(success=True, cost=claude_result.cost, raw_text=claude_result.result_text, parsed_data=eval_json)
 
-    def _get_git_diff(self) -> str:
+    # --- Deterministic checks ---
+
+    def _run_deterministic_checks(self, sprint_id: int, contract_path) -> dict:
+        """Run deterministic checks before LLM evaluation.
+
+        Returns dict with check results and an all_passed flag.
+        """
+        results = {
+            "test": {"ran": False, "passed": False, "output": ""},
+            "lint": {"ran": False, "passed": False, "output": ""},
+            "typecheck": {"ran": False, "passed": False, "output": ""},
+            "git_diff": "",
+            "file_existence": {"checked": False, "missing": []},
+            "all_passed": True,
+            "fail_summary": "",
+        }
+
+        # Parse contract for test_command and files
+        contract_data = self._parse_contract(contract_path)
+        if not contract_data:
+            return results
+
+        test_command = self._get_test_command(contract_data)
+        files = contract_data.get("files_likely_touched", [])
+
+        failures = []
+
+        # 1. Run tests
+        if test_command:
+            test_result = self._run_command(test_command)
+            results["test"] = test_result
+            if not test_result["passed"]:
+                failures.append(f"tests failed ({test_command})")
+
+        # 2. Run lint
+        lint_result = self._detect_and_run("lint")
+        if lint_result:
+            results["lint"] = lint_result
+            if not lint_result["passed"]:
+                failures.append("lint errors found")
+
+        # 3. Run type check
+        typecheck_result = self._detect_and_run("typecheck")
+        if typecheck_result:
+            results["typecheck"] = typecheck_result
+            if not typecheck_result["passed"]:
+                failures.append("type check errors found")
+
+        # 4. File existence
+        if files:
+            missing = [f for f in files if not (self.config.workspace / f).exists()]
+            results["file_existence"] = {"checked": True, "missing": missing}
+            if missing:
+                failures.append(f"missing files: {', '.join(missing[:5])}")
+
+        if failures:
+            results["all_passed"] = False
+            results["fail_summary"] = "; ".join(failures)
+
+        return results
+
+    def _parse_contract(self, contract_path) -> dict | None:
+        """Parse contract JSON from markdown file."""
         try:
+            text = contract_path.read_text()
+            return json.loads(text)
+        except Exception:
+            return None
+
+    def _get_test_command(self, contract_data: dict) -> str:
+        """Extract test_command from contract data."""
+        if contract_data.get("test_command"):
+            return str(contract_data["test_command"])
+        nested = contract_data.get("contract", {})
+        return str(nested.get("test_command", ""))
+
+    def _run_command(self, command: str, timeout: int = 60) -> dict:
+        """Run a shell command and return result dict."""
+        try:
+            proc = subprocess.run(
+                command, shell=True,
+                capture_output=True, text=True, timeout=timeout,
+                cwd=str(self.config.workspace),
+            )
+            output = (proc.stdout or "") + (proc.stderr or "")
+            output = output[:5000]  # Truncate very long output
+            return {
+                "ran": True,
+                "passed": proc.returncode == 0,
+                "output": output.strip(),
+            }
+        except subprocess.TimeoutExpired:
+            return {"ran": True, "passed": False, "output": f"[TIMEOUT] command took too long: {command}"}
+        except Exception as e:
+            return {"ran": True, "passed": False, "output": f"[ERROR] {e}"}
+
+    def _detect_and_run(self, check_type: str) -> dict | None:
+        """Detect and run a lint or typecheck tool. Returns None if no tool found."""
+        tools = {
+            "lint": [
+                (["ruff", "check", ".", "--quiet"], "ruff"),
+                (["flake8", ".", "--quiet"], "flake8"),
+            ],
+            "typecheck": [
+                (["mypy", ".", "--no-error-summary"], "mypy"),
+                (["pyright", "--quiet"], "pyright"),
+            ],
+        }
+
+        for cmd_parts, name in tools.get(check_type, []):
+            try:
+                # Check if tool is available
+                detect = subprocess.run(
+                    [cmd_parts[0], "--version"],
+                    capture_output=True, timeout=5,
+                )
+                if detect.returncode != 0:
+                    continue
+
+                # Run the check
+                proc = subprocess.run(
+                    cmd_parts,
+                    capture_output=True, text=True, timeout=60,
+                    cwd=str(self.config.workspace),
+                )
+                output = (proc.stdout or "") + (proc.stderr or "")
+                output = output[:5000]
+                return {
+                    "ran": True,
+                    "passed": proc.returncode == 0,
+                    "output": output.strip() or f"({name}: clean)",
+                }
+            except FileNotFoundError:
+                continue
+            except subprocess.TimeoutExpired:
+                return {"ran": True, "passed": False, "output": f"[TIMEOUT] {name}"}
+            except Exception:
+                continue
+
+        return None  # No tool found
+
+    def _format_deterministic_evidence(self, results: dict) -> str:
+        """Format deterministic check results as evidence for the evaluator prompt."""
+        lines = ["## Deterministic Check Results", ""]
+
+        all_passed = results.get("all_passed", True)
+
+        if all_passed:
+            has_any = (
+                results["test"]["ran"]
+                or results["lint"]["ran"]
+                or (results["typecheck"] or {}).get("ran", False)
+                or results["file_existence"]["checked"]
+            )
+            if has_any:
+                lines.append("**ALL DETERMINISTIC CHECKS PASSED**")
+            else:
+                lines.append("*No deterministic checks were applicable for this sprint.*")
+        else:
+            lines.append(
+                "**SOME DETERMINISTIC CHECKS FAILED — "
+                "score should not exceed 0.5 unless you can clearly explain why each failure is acceptable.**"
+            )
+        lines.append("")
+
+        # Test results
+        test = results.get("test", {})
+        if test.get("ran"):
+            status = "PASSED" if test["passed"] else "FAILED"
+            lines.append(f"### Tests: {status}")
+            if test.get("output"):
+                lines.append(f"```\n{test['output']}\n```")
+            lines.append("")
+
+        # Lint results
+        lint = results.get("lint", {})
+        if lint.get("ran"):
+            status = "PASSED" if lint["passed"] else "FAILED"
+            lines.append(f"### Lint: {status}")
+            if lint.get("output") and not lint["passed"]:
+                lines.append(f"```\n{lint['output']}\n```")
+            lines.append("")
+
+        # Type check results
+        typecheck = results.get("typecheck") or {}
+        if typecheck.get("ran"):
+            status = "PASSED" if typecheck["passed"] else "FAILED"
+            lines.append(f"### Type Check: {status}")
+            if typecheck.get("output") and not typecheck["passed"]:
+                lines.append(f"```\n{typecheck['output']}\n```")
+            lines.append("")
+
+        # File existence
+        fe = results.get("file_existence", {})
+        if fe.get("checked"):
+            missing = fe.get("missing", [])
+            if missing:
+                lines.append(f"### File Existence: MISSING {len(missing)} file(s)")
+                for f in missing:
+                    lines.append(f"- `{f}`")
+            else:
+                lines.append("### File Existence: ALL PRESENT")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _get_git_diff(self, sprint_id: int = None) -> str:
+        """Get git diff — full diff when on a sprint branch, stat otherwise."""
+        try:
+            # Try to get diff against base branch
+            if sprint_id:
+                branch = f"chase/sprint-{sprint_id}"
+                # Check if we're on the sprint branch with a base to diff against
+                try:
+                    base_proc = subprocess.run(
+                        ["git", "merge-base", branch, f"{branch}~1"],
+                        capture_output=True, text=True, timeout=5,
+                        cwd=str(self.config.workspace),
+                    )
+                    if base_proc.returncode == 0:
+                        diff_proc = subprocess.run(
+                            ["git", "diff", "HEAD~1"],
+                            capture_output=True, text=True, timeout=10,
+                            cwd=str(self.config.workspace),
+                        )
+                        if diff_proc.stdout.strip():
+                            # Truncate very long diffs
+                            diff = diff_proc.stdout.strip()
+                            if len(diff) > 20000:
+                                diff = diff[:20000] + "\n... (truncated)"
+                            return diff
+                except Exception:
+                    pass
+
+            # Fallback: stat diff
             proc = subprocess.run(
                 ["git", "diff", "HEAD~1", "--stat"],
                 capture_output=True, text=True, timeout=10,

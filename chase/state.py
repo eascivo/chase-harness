@@ -70,6 +70,10 @@ class StateDir:
     def sprint_skip(self, sprint_id: int) -> Path:
         return self.sprints / f"{sprint_id:02d}-skip.json"
 
+    def sprint_state(self, sprint_id: int) -> Path:
+        """Sprint state file tracking branch, status, agent chain."""
+        return self.sprints / f"{sprint_id:02d}-state.json"
+
     @property
     def current_agent_file(self) -> Path:
         return self.root / "current-agent.json"

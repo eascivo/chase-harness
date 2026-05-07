@@ -123,6 +123,9 @@ class Orchestrator:
         else:
             self.logger.info(f"Found {len(contracts)} existing sprint contracts, skipping planner")
 
+        # Record base branch for sprint isolation
+        base_branch = self._get_current_branch()
+
         # Phase 2 & 3: Sprint loop
         stale_count = 0
         prev_head = self._git_head()
@@ -154,13 +157,40 @@ class Orchestrator:
             self.logger.info(f"Sprint {sprint_id}: starting")
             self.logger.info("=" * 40)
 
+            # --- Sprint branch management ---
+            sprint_branch = f"chase/sprint-{sprint_id}"
+            sprint_state_path = self.state.sprint_state(sprint_id)
+
+            # Read existing state or create new
+            sprint_state = self._read_sprint_state(sprint_id)
+            if not sprint_state.get("branch"):
+                # First run: create sprint branch from base
+                self._create_sprint_branch(base_branch, sprint_id)
+                sprint_state["branch"] = sprint_branch
+                sprint_state["base_branch"] = base_branch
+                sprint_state["status"] = "running"
+                sprint_state["started_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                sprint_state["agent_chain"] = []
+                self._write_sprint_state(sprint_id, sprint_state)
+            else:
+                # Retry: switch to existing sprint branch
+                existing_branch = sprint_state["branch"]
+                if not self._branch_exists(existing_branch):
+                    # Branch was deleted — recreate
+                    self._create_sprint_branch(base_branch, sprint_id)
+                    sprint_state["branch"] = sprint_branch
+                else:
+                    self._checkout_branch(existing_branch)
+
             # Contract Negotiation
-            self._write_current_agent("Negotiator", sprint_id, 0)
+            self._update_sprint_agent(sprint_id, "Negotiator", "running")
             self.negotiator.run(sprint_id, self.cost, self.logger)
+            self._update_sprint_agent(sprint_id, "Negotiator", "success")
 
             if not self._approval_granted():
                 self.logger.error("Plan approval required. Run `chase plan`, review it, then run `chase approve`.")
                 generate_handoff(self.state, self.config, self.cost, sprint_id, "approval_required")
+                self._update_sprint_status(sprint_id, "failed", "approval_required")
                 return 1
 
             # Generator-Evaluator retry loop
@@ -169,30 +199,44 @@ class Orchestrator:
             max_errors = 2  # Framework-level errors: skip after 2 consecutive
             passed = False
 
-            while retry_count < self.config.max_retries:
-                # Generator
-                feedback = ""
-                if retry_count > 0 and eval_path.exists():
-                    eval_data = self._read_eval(eval_path)
-                    if eval_data:
-                        feedback = eval_data.get("feedback", "")
+            # Check for eval-only retry (result exists, no eval)
+            result_path = self.state.sprint_result(sprint_id)
+            eval_only = result_path.exists() and result_path.stat().st_size > 0 and not eval_path.exists()
 
-                self._write_current_agent("Generator", sprint_id, retry_count)
-                gen_result = self.generator.run(sprint_id, feedback, self.cost, self.logger)
-                if not gen_result.success:
-                    self.logger.error(f"Sprint {sprint_id} generator failed")
-                    error_count += 1
-                    retry_count += 1
-                    if error_count >= max_errors:
-                        self.logger.error(f"Sprint {sprint_id}: {max_errors} consecutive errors, skipping")
-                        break
-                    continue
+            while retry_count < self.config.max_retries:
+                if not eval_only:
+                    # Generator
+                    feedback = ""
+                    if retry_count > 0 and eval_path.exists():
+                        eval_data = self._read_eval(eval_path)
+                        if eval_data:
+                            feedback = eval_data.get("feedback", "")
+
+                    self._write_current_agent("Generator", sprint_id, retry_count)
+                    self._update_sprint_agent(sprint_id, "Generator", "running")
+                    gen_result = self.generator.run(sprint_id, feedback, self.cost, self.logger)
+                    if not gen_result.success:
+                        self.logger.error(f"Sprint {sprint_id} generator failed")
+                        self._update_sprint_agent(sprint_id, "Generator", "failed", "generator produced no output")
+                        error_count += 1
+                        retry_count += 1
+                        if error_count >= max_errors:
+                            self.logger.error(f"Sprint {sprint_id}: {max_errors} consecutive errors, skipping")
+                            break
+                        continue
+                    self._update_sprint_agent(sprint_id, "Generator", "success")
+                else:
+                    # Eval-only mode: skip generator, use existing result
+                    self.logger.info(f"Sprint {sprint_id}: eval-only retry — skipping generator")
+                    eval_only = False  # Only skip on first iteration
 
                 # Evaluator
                 self._write_current_agent("Evaluator", sprint_id, retry_count)
+                self._update_sprint_agent(sprint_id, "Evaluator", "running")
                 eval_result = self.evaluator.run(sprint_id, self.cost, self.logger)
                 if not eval_result.success or eval_result.parsed_data is None:
                     self.logger.error(f"Sprint {sprint_id} evaluator no output")
+                    self._update_sprint_agent(sprint_id, "Evaluator", "failed", "no valid JSON output")
                     error_count += 1
                     retry_count += 1
                     if error_count >= max_errors:
@@ -225,14 +269,35 @@ class Orchestrator:
                     passed = True
                     self.logger.sprint(sprint_id, "result", "PASSED!")
                     self._mark_eval_pass(eval_path)
+                    self._update_sprint_agent(sprint_id, "Evaluator", "success")
                     break
                 else:
                     # Legitimate FAIL (not ERROR) — reset error count, allow retries
                     error_count = 0
                     retry_count += 1
+                    feedback = eval_result.parsed_data.get("feedback", "score below threshold")
+                    self._update_sprint_agent(sprint_id, "Evaluator", "failed", feedback)
                     self.logger.sprint(sprint_id, "result",
                         f"Not passed (score={final_score} < threshold={self.config.eval_threshold}), "
                         f"retry {retry_count}/{self.config.max_retries}")
+
+            # --- Post-sprint branch management ---
+            current_sprint_branch = sprint_state.get("branch", sprint_branch)
+
+            if passed:
+                self._update_sprint_status(sprint_id, "success")
+                # Merge sprint branch back to base
+                merged = self._merge_sprint_branch(sprint_id, base_branch)
+                if not merged:
+                    self.logger.warning(
+                        f"Sprint {sprint_id} passed but merge failed. "
+                        f"Branch {current_sprint_branch} preserved for manual merge."
+                    )
+            else:
+                self._update_sprint_status(sprint_id, "failed",
+                    self._get_last_error(sprint_id) or "retries exhausted")
+                # Checkout base branch, leave sprint branch for review
+                self._checkout_branch(base_branch)
 
             # Stale detection: check git HEAD or uncommitted changes
             current_head = self._git_head()
@@ -401,6 +466,159 @@ class Orchestrator:
                 self.state.current_agent_file.unlink()
         except OSError:
             pass
+
+    # --- Sprint branch management ---
+
+    def _get_current_branch(self) -> str:
+        """Get current git branch name."""
+        try:
+            proc = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True, text=True, timeout=5,
+                cwd=str(self.config.workspace),
+            )
+            return proc.stdout.strip() or "HEAD"
+        except Exception:
+            return "HEAD"
+
+    def _create_sprint_branch(self, base_branch: str, sprint_id: int) -> None:
+        """Create and checkout a sprint branch from the base branch."""
+        branch_name = f"chase/sprint-{sprint_id}"
+        try:
+            # Ensure we're on base branch first
+            subprocess.run(
+                ["git", "checkout", base_branch],
+                capture_output=True, text=True, timeout=10,
+                cwd=str(self.config.workspace),
+            )
+            # Create sprint branch (use -B to recreate if exists)
+            subprocess.run(
+                ["git", "checkout", "-B", branch_name],
+                capture_output=True, text=True, timeout=10,
+                check=True,
+                cwd=str(self.config.workspace),
+            )
+            self.logger.info(f"Created sprint branch: {branch_name}")
+        except subprocess.CalledProcessError as e:
+            self.logger.warning(f"Failed to create sprint branch: {e.stderr or e}")
+            # Non-fatal — continue without branch isolation
+
+    def _merge_sprint_branch(self, sprint_id: int, base_branch: str) -> bool:
+        """Merge sprint branch back to base with --no-ff. Returns True on success."""
+        branch_name = f"chase/sprint-{sprint_id}"
+        try:
+            # Checkout base branch
+            subprocess.run(
+                ["git", "checkout", base_branch],
+                capture_output=True, text=True, timeout=10,
+                check=True,
+                cwd=str(self.config.workspace),
+            )
+            # Merge with --no-ff
+            result = subprocess.run(
+                ["git", "merge", "--no-ff", branch_name, "-m", f"chase: merge sprint {sprint_id}"],
+                capture_output=True, text=True, timeout=30,
+                cwd=str(self.config.workspace),
+            )
+            if result.returncode != 0:
+                self.logger.error(f"Merge conflict for sprint {sprint_id}: {result.stderr}")
+                # Abort merge to leave clean state
+                subprocess.run(
+                    ["git", "merge", "--abort"],
+                    capture_output=True, text=True, timeout=10,
+                    cwd=str(self.config.workspace),
+                )
+                return False
+            self.logger.info(f"Merged sprint branch {branch_name} into {base_branch}")
+            return True
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to merge sprint branch: {e}")
+            return False
+
+    def _checkout_branch(self, branch: str) -> bool:
+        """Checkout a git branch. Returns True on success."""
+        try:
+            subprocess.run(
+                ["git", "checkout", branch],
+                capture_output=True, text=True, timeout=10,
+                check=True,
+                cwd=str(self.config.workspace),
+            )
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    def _branch_exists(self, branch: str) -> bool:
+        """Check if a git branch exists."""
+        try:
+            subprocess.run(
+                ["git", "rev-parse", "--verify", branch],
+                capture_output=True, text=True, timeout=5,
+                check=True,
+                cwd=str(self.config.workspace),
+            )
+            return True
+        except Exception:
+            return False
+
+    # --- Sprint state management ---
+
+    def _read_sprint_state(self, sprint_id: int) -> dict:
+        """Read sprint state file. Returns empty dict if not found."""
+        path = self.state.sprint_state(sprint_id)
+        if path.exists():
+            try:
+                return json.loads(path.read_text())
+            except Exception:
+                pass
+        return {}
+
+    def _write_sprint_state(self, sprint_id: int, data: dict) -> None:
+        """Write sprint state file atomically."""
+        path = self.state.sprint_state(sprint_id)
+        _tmp = path.with_suffix(".tmp")
+        _tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        _tmp.rename(path)
+
+    def _update_sprint_agent(self, sprint_id: int, agent: str, status: str,
+                              error: str = "") -> None:
+        """Update the agent chain in sprint state."""
+        state = self._read_sprint_state(sprint_id)
+        chain = state.get("agent_chain", [])
+
+        # Update existing entry or append new one
+        found = False
+        for entry in chain:
+            if entry.get("agent") == agent:
+                entry["status"] = status
+                if error:
+                    entry["error"] = error
+                found = True
+                break
+        if not found:
+            entry = {"agent": agent, "status": status}
+            if error:
+                entry["error"] = error
+            chain.append(entry)
+
+        state["agent_chain"] = chain
+        self._write_sprint_state(sprint_id, state)
+
+    def _update_sprint_status(self, sprint_id: int, status: str,
+                               error: str = "") -> None:
+        """Update sprint overall status."""
+        state = self._read_sprint_state(sprint_id)
+        state["status"] = status
+        if error:
+            state["last_error"] = error
+        if status in ("success", "failed"):
+            state["finished_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._write_sprint_state(sprint_id, state)
+
+    def _get_last_error(self, sprint_id: int) -> str:
+        """Get last error from sprint state."""
+        state = self._read_sprint_state(sprint_id)
+        return state.get("last_error", "")
 
 
 def _pid_alive(pid: int) -> bool:
